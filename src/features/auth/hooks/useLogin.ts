@@ -33,7 +33,7 @@ export const useLogin = () => {
       }
       
       await signIn(data.token, data.user);
-      router.replace('/(tabs)');
+      router.replace('/tabs');
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
     } finally {
@@ -58,7 +58,7 @@ export const useLogin = () => {
       });
 
       await signIn(data.token, data.user);
-      router.replace('/(tabs)');
+      router.replace('/tabs');
     } catch (err: any) {
       setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Verification failed.');
     } finally {

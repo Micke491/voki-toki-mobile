@@ -45,3 +45,35 @@ export interface ListItem {
   label?: string;
   user?: SearchUser;
 }
+
+export interface Message {
+  _id: string;
+  chatId: string;
+  sender: ChatParticipant;
+  text?: string;
+  createdAt: string;
+  updatedAt: string;
+  status?: 'sending' | 'failed' | 'sent' | 'delivered' | 'seen';
+  read?: boolean;
+  isEdited?: boolean;
+  isSystemMessage?: boolean;
+  isDeletedForEveryone?: boolean;
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'gif' | 'sticker' | 'call';
+  readBy?: { userId: string; readAt: string }[];
+}
+
+export interface MessagesResponse {
+  messages: Message[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+export interface ChatDetails {
+  _id: string;
+  name?: string;
+  isGroupChat?: boolean;
+  avatar?: string;
+  participants: ChatParticipant[];
+  groupAdmin?: string;
+}

@@ -1,5 +1,5 @@
 import { apiClient } from '../../api/client';
-import { ChatListItem, SearchUser } from './types';
+import { ChatDetails, ChatListItem, Message, MessagesResponse, SearchUser } from './types';
 
 export const chatApi = {
   getChats: async (): Promise<ChatListItem[]> => {
@@ -29,5 +29,36 @@ export const chatApi = {
   getRecommendedUsers: async (): Promise<{ users: SearchUser[] }> => {
     const response = await apiClient.get('/users/recommended');
     return response.data;
+  },
+
+  getChatById: async (chatId: string): Promise<ChatDetails> => {
+    const response = await apiClient.get(`/chat/${chatId}`);
+    return response.data;
+  },
+
+  getMessages: async (chatId: string, before?: string, limit = 30): Promise<MessagesResponse> => {
+    let url = `/chat/message?chatId=${chatId}&limit=${limit}`;
+    if (before) url += `&before=${encodeURIComponent(before)}`;
+    const response = await apiClient.get(url);
+    return response.data;
+  },
+
+  sendMessage: async (payload: {
+    chatId: string;
+    senderId: string;
+    text: string;
+    replyTo?: string;
+  }): Promise<{ message: Message }> => {
+    const response = await apiClient.post('/chat/message', payload);
+    return response.data;
+  },
+
+  markMessagesSeen: async (chatId: string, messageIds: string[]): Promise<void> => {
+    if (messageIds.length === 0) return;
+    await apiClient.post(`/chat/message/messages/${messageIds[0]}/status`, {
+      chatId,
+      messageIds,
+      status: 'seen',
+    });
   },
 };
