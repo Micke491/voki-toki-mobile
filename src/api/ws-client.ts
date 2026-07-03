@@ -45,15 +45,18 @@ export class RealtimeClient {
   reconnectDelay = 1000;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnecting = false;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   async connect() {
     if (this.isConnecting) return;
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) return;
 
-    const token = await getToken();
-    if (!token) return;
-
     this.isConnecting = true;
+    const token = await getToken();
+    if (!token) {
+      this.isConnecting = false;
+      return;
+    }
 
     try {
       this.ws = new WebSocket(`${WS_URL}?token=${token}`);
@@ -62,6 +65,13 @@ export class RealtimeClient {
         console.log('[WS] Connected');
         this.reconnectAttempts = 0;
         this.isConnecting = false;
+
+        if (this.pingInterval) clearInterval(this.pingInterval);
+        this.pingInterval = setInterval(() => {
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ action: 'ping' }));
+          }
+        }, 30000);
 
         Object.keys(this.channels).forEach(channelName => {
           this.send({ action: 'subscribe', channel: channelName });
@@ -90,6 +100,10 @@ export class RealtimeClient {
         console.log('[WS] Disconnected');
         this.ws = null;
         this.isConnecting = false;
+        if (this.pingInterval) {
+          clearInterval(this.pingInterval);
+          this.pingInterval = null;
+        }
         this.scheduleReconnect();
       };
 
@@ -153,6 +167,10 @@ export class RealtimeClient {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
     this.reconnectAttempts = this.maxReconnectAttempts; 
     if (this.ws) {
