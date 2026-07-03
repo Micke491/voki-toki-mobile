@@ -15,6 +15,7 @@ import { useAuthContext } from '../../auth/context/AuthContext';
 import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
 import { NewChatModal } from './NewChatModal';
+import { StoryBar } from '../../story/components/StoryBar';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
@@ -184,6 +185,8 @@ export const ChatListScreen = () => {
           )}
         </View>
       </View>
+
+      <StoryBar />  
 
       {/* Error */}
       {error && (

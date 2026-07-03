@@ -48,6 +48,9 @@ export const chatApi = {
     senderId: string;
     text: string;
     replyTo?: string;
+    mediaUrl?: string;
+    mediaType?: string;
+    mediaPublicId?: string;
   }): Promise<{ message: Message }> => {
     const response = await apiClient.post('/chat/message', payload);
     return response.data;
@@ -60,5 +63,35 @@ export const chatApi = {
       messageIds,
       status: 'seen',
     });
+  },
+
+  uploadChatMedia: async (
+    fileUri: string,
+    fileName: string,
+    mimeType: string,
+    onProgress?: (percent: number) => void
+  ): Promise<{ url: string; mediaType: string; publicId: string }> => {
+    const formData = new FormData();
+    // @ts-ignore - React Native FormData file shape
+    formData.append('file', {
+      uri: fileUri,
+      name: fileName,
+      type: mimeType,
+    });
+
+    const response = await apiClient.post('/chat/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (evt) => {
+        if (onProgress && evt.total) {
+          onProgress(Math.round((evt.loaded * 100) / evt.total));
+        }
+      },
+    });
+    return response.data;
+  },
+
+  listMedia: async (chatId: string): Promise<any[]> => {
+    const response = await apiClient.get(`/chat/media/list?chatId=${chatId}`);
+    return response.data;
   },
 };

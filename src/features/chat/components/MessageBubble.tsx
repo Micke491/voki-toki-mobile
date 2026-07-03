@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Message } from '../types';
 import { formatMessageTime } from '../utils/format';
+import { Image } from 'react-native';
 
 interface MessageBubbleProps {
   message: Message;
@@ -48,16 +49,31 @@ export const MessageBubble = ({ message, isOwn, showSenderName, onRetry }: Messa
         {showSenderName && !isOwn && message.sender?.username && (
           <Text style={styles.senderName}>{message.sender.username}</Text>
         )}
-        {hasMedia && (
-          <View style={styles.mediaRow}>
-            <Feather
-              name={message.mediaType === 'audio' ? 'mic' : message.mediaType === 'video' ? 'video' : 'image'}
-              size={14}
-              color={isOwn ? '#bfdbfe' : '#71717a'}
-            />
-            <Text style={[styles.mediaLabel, isOwn && styles.textOwn]}>{content}</Text>
+        {hasMedia && message.mediaType === 'image' && (
+          <Image source={{ uri: message.mediaUrl }} style={styles.mediaImage} resizeMode="cover" />
+        )}
+        {hasMedia && message.mediaType === 'video' && (
+          <View style={styles.videoThumb}>
+            <Image source={{ uri: message.mediaUrl }} style={styles.mediaImage} resizeMode="cover" />
+            <View style={styles.playOverlay}>
+              <Feather name="play" size={28} color="#fff" />
+            </View>
           </View>
         )}
+        {hasMedia && message.mediaType === 'audio' && (
+          <View style={styles.mediaRow}>
+            <Feather name="mic" size={14} color={isOwn ? '#bfdbfe' : '#71717a'} />
+            <Text style={[styles.mediaLabel, isOwn && styles.textOwn]}>Voice message</Text>
+          </View>
+        )}
+        {!hasMedia && message.text ? (
+          <Text style={[styles.text, isOwn && styles.textOwn, message.isDeletedForEveryone && styles.deletedText]}>
+            {content}
+          </Text>
+        ) : null}
+        {hasMedia && message.text ? (
+          <Text style={[styles.text, isOwn && styles.textOwn, { marginTop: 6 }]}>{message.text}</Text>
+        ) : null}
         {!hasMedia && (
           <Text style={[styles.text, isOwn && styles.textOwn, message.isDeletedForEveryone && styles.deletedText]}>
             {content}
@@ -171,5 +187,23 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     overflow: 'hidden',
+  },
+  mediaImage: {
+    width: 220,
+    height: 220,
+    borderRadius: 12,
+  },
+  videoThumb: {
+    width: 220,
+    height: 220,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  playOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

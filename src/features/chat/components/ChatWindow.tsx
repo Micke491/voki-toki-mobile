@@ -22,6 +22,8 @@ import { useChatMessages } from '../hooks/useChatMessages';
 import { MessageBubble } from './MessageBubble';
 import { Message } from '../types';
 import { getAvatarColor, formatDateSeparator, isSameDay } from '../utils/format';
+import { AttachmentSheet } from './AttachmentSheet';
+import { useMediaPicker } from '../hooks/useMediaPicker';
 
 interface ChatWindowProps {
   chatId: string;
@@ -54,6 +56,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList<ListItem>>(null);
   const shouldScrollRef = useRef(true);
+  
 
   const { displayName, isGroup, loading: chatLoading, error: chatError } = useChatDetails(chatId, currentUserId);
   const {
@@ -65,6 +68,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     loadMore,
     sendMessage,
     retryMessage,
+    sendMediaMessage,
   } = useChatMessages({ chatId, currentUserId });
 
   const listItems = buildListItems(messages);
@@ -72,6 +76,23 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const avatarLetter = displayName.charAt(0).toUpperCase();
   const isLoading = chatLoading || messagesLoading;
   const error = chatError || messagesError;
+
+  const [showAttachSheet, setShowAttachSheet] = useState(false);
+  const { pickFromLibrary, pickFromCamera } = useMediaPicker();
+
+  const handlePickAndSend = useCallback(async (source: 'library' | 'photo' | 'video') => {
+    if (!user) return;
+    const media = source === 'library'
+      ? await pickFromLibrary()
+      : await pickFromCamera(source === 'video' ? 'video' : 'photo');
+    if (!media) return;
+
+    shouldScrollRef.current = true;
+    await sendMediaMessage(
+      { uri: media.uri, fileName: media.fileName, mimeType: media.mimeType, type: media.type },
+      { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
+    );
+  }, [user, pickFromLibrary, pickFromCamera, sendMediaMessage]);
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -221,6 +242,13 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
 
       {/* Input */}
       <View style={styles.inputBar}>
+        <TouchableOpacity
+          style={styles.attachButton}
+          onPress={() => setShowAttachSheet(true)}
+          activeOpacity={0.7}
+        >
+          <Feather name="plus-circle" size={26} color="#71717a" />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="Message..."
@@ -239,6 +267,14 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           <Feather name="send" size={20} color="#fff" />
         </TouchableOpacity>
       </View>
+
+      <AttachmentSheet
+        visible={showAttachSheet}
+        onClose={() => setShowAttachSheet(false)}
+        onPickLibrary={() => handlePickAndSend('library')}
+        onTakePhoto={() => handlePickAndSend('photo')}
+        onTakeVideo={() => handlePickAndSend('video')}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -383,5 +419,11 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     backgroundColor: '#1e3a5f',
     opacity: 0.6,
+  },
+  attachButton: {
+    width: 40,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

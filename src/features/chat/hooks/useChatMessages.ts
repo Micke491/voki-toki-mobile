@@ -232,6 +232,42 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     }
   }, [chatId, currentUserId, setMessages]);
 
+  const sendMediaMessage = useCallback(async (
+    media: { uri: string; fileName: string; mimeType: string; type: 'image' | 'video' },
+    sender: Message['sender'],
+    caption?: string
+  ) => {
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: Message = {
+      _id: tempId,
+      chatId,
+      sender,
+      text: caption || '',
+      mediaUrl: media.uri,
+      mediaType: media.type,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'sending',
+    };
+
+    setMessages(prev => [...prev, optimistic]);
+
+    try {
+      const uploaded = await chatApi.uploadChatMedia(media.uri, media.fileName, media.mimeType);
+      const { message } = await chatApi.sendMessage({
+        chatId,
+        senderId: currentUserId,
+        text: caption || '',
+        mediaUrl: uploaded.url,
+        mediaType: uploaded.mediaType,
+        mediaPublicId: uploaded.publicId,
+      });
+      setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
+    } catch {
+      setMessages(prev => prev.map(m => (m._id === tempId ? { ...m, status: 'failed' } : m)));
+    }
+  }, [chatId, currentUserId, setMessages]);
+
   return {
     messages,
     loading,
@@ -241,5 +277,6 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     loadMore,
     sendMessage,
     retryMessage,
+    sendMediaMessage,
   };
 }
