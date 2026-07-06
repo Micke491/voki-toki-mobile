@@ -44,7 +44,7 @@ export function useMediaPicker() {
       if (!hasPermission) return null;
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsEditing: false,
         quality: 0.85,
         videoMaxDuration: 60,
@@ -81,7 +81,7 @@ export function useMediaPicker() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: mode === 'video' ? ImagePicker.MediaTypeOptions.Videos : ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: mode === 'video' ? ['videos'] : ['images'],
         quality: 0.85,
         videoMaxDuration: 60,
       });
