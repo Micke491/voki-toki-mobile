@@ -22,6 +22,13 @@ export default function TabLayout() {
         }} 
       />
       <Tabs.Screen 
+        name="bot" 
+        options={{ 
+          title: 'AI',
+          tabBarIcon: ({ color, size }) => <Feather name="cpu" size={size} color={color} />
+        }} 
+      />
+      <Tabs.Screen 
         name="profile" 
         options={{ 
           title: 'Profile',
