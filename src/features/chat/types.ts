@@ -30,6 +30,8 @@ export interface ChatListItem {
   lastMessage?: LastMessage;
   updatedAt: string;
   unreadCount?: number;
+  isPinned?: boolean;
+  isMuted?: boolean;
 }
 
 export interface SearchUser {
@@ -60,7 +62,26 @@ export interface Message {
   isDeletedForEveryone?: boolean;
   mediaUrl?: string;
   mediaType?: 'image' | 'video' | 'audio' | 'gif' | 'sticker' | 'call';
+  mediaPublicId?: string;
   readBy?: { userId: string; readAt: string }[];
+  reactions?: {
+    userId: string;
+    emoji: string;
+    createdAt: string;
+    user?: {
+      username: string;
+      avatar?: string;
+    };
+  }[];
+  replyTo?: Message;
+  isPinned?: boolean;
+  isForwarded?: boolean;
+  storyId?: string;
+  storyMediaUrl?: string;
+  storyMediaType?: 'image' | 'video';
+  storyCaption?: string;
+  storyExpiresAt?: string;
+  storyExpired?: boolean;
 }
 
 export interface MessagesResponse {

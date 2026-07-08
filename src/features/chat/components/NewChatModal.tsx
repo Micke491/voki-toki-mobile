@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNewChat } from '../hooks/useNewChat';
-import { ListItem } from '../types';
+import { ListItem, SearchUser } from '../types';
+import { chatApi } from '../api';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
@@ -34,9 +35,10 @@ interface NewChatModalProps {
   visible: boolean;
   onClose: () => void;
   onChatCreated: (chatId: string) => void;
+  chatListUsers?: SearchUser[];
 }
 
-export const NewChatModal = ({ visible, onClose, onChatCreated }: NewChatModalProps) => {
+export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = [] }: NewChatModalProps) => {
   const {
     searchQuery,
     setSearchQuery,
@@ -48,6 +50,31 @@ export const NewChatModal = ({ visible, onClose, onChatCreated }: NewChatModalPr
     startChat,
     loadMore,
   } = useNewChat({ isVisible: visible, onClose, onChatCreated });
+
+  const [activeTab, setActiveTab] = useState<'chat' | 'group'>('chat');
+  const [groupName, setGroupName] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+
+  const handleToggleUser = (userId: string) => {
+    setSelectedUsers(prev => 
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleCreateGroup = async () => {
+    if (!groupName.trim() || selectedUsers.length === 0) return;
+    try {
+      setCreatingGroup(true);
+      const chat = await chatApi.createGroupChat(groupName.trim(), selectedUsers);
+      onClose();
+      onChatCreated(chat._id);
+    } catch (err) {
+      console.error('Failed to create group', err);
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
 
   const renderItem = ({ item }: { item: ListItem }) => {
     if (item.type === 'header') {
@@ -123,65 +150,163 @@ export const NewChatModal = ({ visible, onClose, onChatCreated }: NewChatModalPr
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
             <Feather name="x" size={24} color="#a1a1aa" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Chat</Text>
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'chat' && styles.activeTab]} 
+              onPress={() => setActiveTab('chat')}
+            >
+              <Text style={[styles.tabText, activeTab === 'chat' && styles.activeTabText]}>New Chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'group' && styles.activeTab]} 
+              onPress={() => setActiveTab('group')}
+            >
+              <Text style={[styles.tabText, activeTab === 'group' && styles.activeTabText]}>New Group</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.closeButton} />
         </View>
 
-        {/* Search */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
-            <Feather name="search" size={18} color="#71717a" style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search users..."
-              placeholderTextColor="#52525b"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCapitalize="none"
-              autoFocus
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-                <Feather name="x" size={16} color="#71717a" />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* Creating overlay */}
-        {creating && (
-          <View style={styles.creatingOverlay}>
-            <ActivityIndicator size="small" color="#2563eb" />
-            <Text style={styles.creatingText}>Creating chat...</Text>
-          </View>
-        )}
-
-        {/* Loading */}
-        {(loadingInitial || (loading && listItems.length === 0)) && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2563eb" />
-          </View>
-        )}
-
-        {/* User List */}
-        <FlatList
-          data={listItems}
-          keyExtractor={item => item.id}
-          renderItem={renderItem}
-          ListEmptyComponent={renderEmpty}
-          contentContainerStyle={listItems.length === 0 ? styles.emptyList : undefined}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          ListFooterComponent={
-            loading && listItems.length > 0 ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color="#2563eb" />
+        {activeTab === 'chat' ? (
+          <>
+            {/* Search */}
+            <View style={styles.searchContainer}>
+              <View style={styles.searchBar}>
+                <Feather name="search" size={18} color="#71717a" style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search users..."
+                  placeholderTextColor="#52525b"
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCapitalize="none"
+                  autoFocus
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                    <Feather name="x" size={16} color="#71717a" />
+                  </TouchableOpacity>
+                )}
               </View>
-            ) : null
-          }
-        />
+            </View>
+
+            {/* Creating overlay */}
+            {creating && (
+              <View style={styles.creatingOverlay}>
+                <ActivityIndicator size="small" color="#2563eb" />
+                <Text style={styles.creatingText}>Creating chat...</Text>
+              </View>
+            )}
+
+            {/* Loading */}
+            {(loadingInitial || (loading && listItems.length === 0)) && (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#2563eb" />
+              </View>
+            )}
+
+            {/* User List */}
+            <FlatList
+              data={listItems}
+              keyExtractor={item => item.id}
+              renderItem={renderItem}
+              ListEmptyComponent={renderEmpty}
+              contentContainerStyle={listItems.length === 0 ? styles.emptyList : undefined}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.3}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              ListFooterComponent={
+                loading && listItems.length > 0 ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color="#2563eb" />
+                  </View>
+                ) : null
+              }
+            />
+          </>
+        ) : (
+          <View style={styles.groupContainer}>
+            <View style={styles.groupInputContainer}>
+               <TextInput
+                 style={styles.groupNameInput}
+                 placeholder="Group Name"
+                 placeholderTextColor="#52525b"
+                 value={groupName}
+                 onChangeText={setGroupName}
+               />
+            </View>
+            
+            {selectedUsers.length > 0 && (
+               <View style={styles.selectedUsersContainer}>
+                 <FlatList
+                   horizontal
+                   data={selectedUsers}
+                   keyExtractor={id => id}
+                   showsHorizontalScrollIndicator={false}
+                   renderItem={({ item }) => {
+                     const u = chatListUsers.find(user => user._id === item);
+                     if (!u) return null;
+                     return (
+                       <TouchableOpacity style={styles.selectedUserChip} onPress={() => handleToggleUser(item)}>
+                         <Text style={styles.selectedUserChipText}>{u.username}</Text>
+                         <Feather name="x" size={14} color="#f4f4f5" />
+                       </TouchableOpacity>
+                     )
+                   }}
+                 />
+               </View>
+            )}
+
+            <FlatList
+              data={chatListUsers}
+              keyExtractor={item => item._id}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              renderItem={({ item }) => {
+                const isSelected = selectedUsers.includes(item._id);
+                const avatarLetter = item.username.charAt(0).toUpperCase();
+                const avatarColor = getAvatarColor(item._id);
+                
+                return (
+                  <TouchableOpacity
+                    style={styles.userItem}
+                    onPress={() => handleToggleUser(item._id)}
+                    activeOpacity={0.6}
+                  >
+                    <View style={[styles.userAvatar, { backgroundColor: avatarColor }]}>
+                      <Text style={styles.userAvatarText}>{avatarLetter}</Text>
+                    </View>
+                    <View style={styles.userInfo}>
+                      <Text style={styles.username}>{item.username}</Text>
+                    </View>
+                    <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                      {isSelected && <Feather name="check" size={14} color="#fff" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptySubtitle}>No users available for group chat.</Text>
+                </View>
+              }
+            />
+            
+            <View style={styles.createGroupFooter}>
+              <TouchableOpacity
+                style={[styles.createGroupButton, (!groupName.trim() || selectedUsers.length === 0) && styles.createGroupButtonDisabled]}
+                onPress={handleCreateGroup}
+                disabled={!groupName.trim() || selectedUsers.length === 0 || creatingGroup}
+              >
+                {creatingGroup ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.createGroupButtonText}>Create Group</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -208,9 +333,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+  tabsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 2,
+  },
+  tab: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  activeTab: {
+    backgroundColor: '#27272a',
+  },
+  tabText: {
+    color: '#71717a',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  activeTabText: {
     color: '#f4f4f5',
   },
   searchContainer: {
@@ -328,5 +471,82 @@ const styles = StyleSheet.create({
   footerLoader: {
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  groupContainer: {
+    flex: 1,
+  },
+  groupInputContainer: {
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#27272a',
+  },
+  groupNameInput: {
+    backgroundColor: '#18181b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#27272a',
+    paddingHorizontal: 16,
+    height: 48,
+    color: '#f4f4f5',
+    fontSize: 16,
+  },
+  selectedUsersContainer: {
+    padding: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#27272a',
+  },
+  selectedUserChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  selectedUserChipText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    marginRight: 6,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#3f3f46',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  createGroupFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    backgroundColor: 'rgba(9,9,11,0.9)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#27272a',
+  },
+  createGroupButton: {
+    backgroundColor: '#2563eb',
+    height: 50,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createGroupButtonDisabled: {
+    opacity: 0.5,
+  },
+  createGroupButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

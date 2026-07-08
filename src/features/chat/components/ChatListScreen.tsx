@@ -8,6 +8,8 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -16,6 +18,8 @@ import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
 import { NewChatModal } from './NewChatModal';
 import { StoryBar } from '../../story/components/StoryBar';
+import { ConfirmModal } from '../../../components/ConfirmModal';
+import { ReportModal } from '../../../components/ReportModal';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
@@ -71,8 +75,14 @@ export const ChatListScreen = () => {
   const { user } = useAuthContext();
   const router = useRouter();
   const [showNewChat, setShowNewChat] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chats' | 'requests'>('chats');
+  const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
 
   const {
+    chats,
+    requests,
+    pinnedChatIds,
+    mutedChatIds,
     filteredChats,
     loading,
     refreshing,
@@ -81,7 +91,22 @@ export const ChatListScreen = () => {
     setSearchQuery,
     onRefresh,
     getOtherParticipant,
+    handleRemoveChat,
+    handleAcceptRequest,
+    handleRejectRequest,
+    handlePinChat,
+    handleUnpinChat,
+    handleMuteChat,
+    handleUnmuteChat,
+    handleBlockUser,
+    blockConfirm,
+    setBlockConfirm,
+    reportData,
+    setReportData,
+    blocking,
   } = useChatList(user?._id);
+
+  const displayChats = activeTab === 'chats' ? filteredChats : requests;
 
   const handleChatPress = useCallback((chatId: string) => {
     router.push(`/chat/${chatId}`);
@@ -107,6 +132,7 @@ export const ChatListScreen = () => {
       <TouchableOpacity
         style={styles.chatItem}
         onPress={() => handleChatPress(item._id)}
+        onLongPress={() => setSelectedChatForMenu(item)}
         activeOpacity={0.6}
       >
         {/* Avatar */}
@@ -122,9 +148,17 @@ export const ChatListScreen = () => {
         {/* Content */}
         <View style={styles.chatContent}>
           <View style={styles.chatTopRow}>
-            <Text style={[styles.chatName, unread > 0 && styles.chatNameUnread]} numberOfLines={1}>
-              {chatName}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+              <Text style={[styles.chatName, unread > 0 && styles.chatNameUnread]} numberOfLines={1}>
+                {chatName}
+              </Text>
+              {pinnedChatIds.includes(item._id) && (
+                <Feather name="map-pin" size={12} color="#2563eb" style={{ marginLeft: 6, transform: [{ rotate: '45deg' }] }} />
+              )}
+              {mutedChatIds.includes(item._id) && (
+                <Feather name="bell-off" size={12} color="#71717a" style={{ marginLeft: 6 }} />
+              )}
+            </View>
             <Text style={[styles.chatTime, unread > 0 && styles.chatTimeUnread]}>
               {time}
             </Text>
@@ -139,10 +173,20 @@ export const ChatListScreen = () => {
               </View>
             )}
           </View>
+          {activeTab === 'requests' && (
+             <View style={styles.requestActions}>
+               <TouchableOpacity style={styles.acceptButton} onPress={() => handleAcceptRequest(item._id)}>
+                 <Text style={styles.acceptButtonText}>Accept</Text>
+               </TouchableOpacity>
+               <TouchableOpacity style={styles.declineButton} onPress={() => handleRejectRequest(item._id)}>
+                 <Text style={styles.declineButtonText}>Decline</Text>
+               </TouchableOpacity>
+             </View>
+          )}
         </View>
       </TouchableOpacity>
     );
-  }, [getOtherParticipant, handleChatPress]);
+  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, activeTab, handleAcceptRequest, handleRejectRequest]);
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -186,6 +230,29 @@ export const ChatListScreen = () => {
         </View>
       </View>
 
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'chats' && styles.activeTab]}
+          onPress={() => setActiveTab('chats')}
+        >
+          <Text style={[styles.tabText, activeTab === 'chats' && styles.activeTabText]}>Chats</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'requests' && styles.activeTab]}
+          onPress={() => setActiveTab('requests')}
+        >
+          <Text style={[styles.tabText, activeTab === 'requests' && styles.activeTabText]}>
+            Requests
+            {requests.length > 0 && (
+              <View style={styles.requestBadge}>
+                <Text style={styles.requestBadgeText}>{requests.length}</Text>
+              </View>
+            )}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <StoryBar />  
 
       {/* Error */}
@@ -196,7 +263,7 @@ export const ChatListScreen = () => {
       )}
 
       {/* Loading */}
-      {loading && !refreshing && filteredChats.length === 0 && (
+      {loading && !refreshing && displayChats.length === 0 && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
         </View>
@@ -204,11 +271,11 @@ export const ChatListScreen = () => {
 
       {/* Chat List */}
       <FlatList
-        data={filteredChats}
+        data={displayChats}
         keyExtractor={item => item._id}
         renderItem={renderChatItem}
         ListEmptyComponent={renderEmptyState}
-        contentContainerStyle={filteredChats.length === 0 ? styles.emptyList : undefined}
+        contentContainerStyle={displayChats.length === 0 ? styles.emptyList : undefined}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -235,6 +302,129 @@ export const ChatListScreen = () => {
         visible={showNewChat}
         onClose={() => setShowNewChat(false)}
         onChatCreated={handleNewChatCreated}
+        chatListUsers={Array.from(
+          new Map(
+            chats
+              .flatMap((chat) => chat.participants)
+              .filter((p) => p._id !== user?._id)
+              .map((p) => [p._id, p])
+          ).values()
+        )}
+      />
+
+      {/* Context Menu Modal */}
+      {selectedChatForMenu && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedChatForMenu(null)}
+        >
+          <TouchableWithoutFeedback onPress={() => setSelectedChatForMenu(null)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.menuContainer}>
+                  <Text style={styles.menuTitle}>
+                    {selectedChatForMenu.isGroupChat ? selectedChatForMenu.name : getOtherParticipant(selectedChatForMenu).username}
+                  </Text>
+                  
+                  {pinnedChatIds.includes(selectedChatForMenu._id) ? (
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { handleUnpinChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                      <Feather name="map-pin" size={20} color="#f4f4f5" style={{ transform: [{ rotate: '45deg' }] }} />
+                      <Text style={styles.menuItemText}>Unpin Chat</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { handlePinChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                      <Feather name="map-pin" size={20} color="#f4f4f5" />
+                      <Text style={styles.menuItemText}>Pin Chat</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {mutedChatIds.includes(selectedChatForMenu._id) ? (
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { handleUnmuteChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                      <Feather name="bell" size={20} color="#f4f4f5" />
+                      <Text style={styles.menuItemText}>Unmute Chat</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.menuItem} onPress={() => { handleMuteChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                      <Feather name="bell-off" size={20} color="#f4f4f5" />
+                      <Text style={styles.menuItemText}>Mute Chat</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {!selectedChatForMenu.isGroupChat && (
+                    <>
+                      <TouchableOpacity style={styles.menuItem} onPress={() => { setSelectedChatForMenu(null); /* View Profile */ }}>
+                        <Feather name="user" size={20} color="#f4f4f5" />
+                        <Text style={styles.menuItemText}>View Profile</Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.menuDivider} />
+
+                      <TouchableOpacity style={styles.menuItem} onPress={() => { 
+                        const otherUser = getOtherParticipant(selectedChatForMenu);
+                        setSelectedChatForMenu(null); 
+                        setBlockConfirm({
+                          chatId: selectedChatForMenu._id,
+                          userId: otherUser._id,
+                          username: otherUser.username
+                        });
+                      }}>
+                        <Feather name="slash" size={20} color="#ef4444" />
+                        <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Block User</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={styles.menuItem} onPress={() => { 
+                        const otherUser = getOtherParticipant(selectedChatForMenu);
+                        setSelectedChatForMenu(null); 
+                        setReportData({
+                          userId: otherUser._id,
+                          username: otherUser.username
+                        });
+                      }}>
+                        <Feather name="alert-triangle" size={20} color="#f59e0b" />
+                        <Text style={[styles.menuItemText, { color: '#f59e0b' }]}>Report User</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+
+                  <View style={styles.menuDivider} />
+
+                  <TouchableOpacity style={styles.menuItem} onPress={() => { handleRemoveChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                    <Feather name="trash-2" size={20} color="#ef4444" />
+                    <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Remove Chat</Text>
+                  </TouchableOpacity>
+
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+
+      {/* Block User Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!blockConfirm}
+        onClose={() => setBlockConfirm(null)}
+        onConfirm={() => {
+          if (blockConfirm) {
+            handleBlockUser(blockConfirm.userId, blockConfirm.chatId);
+          }
+        }}
+        title="Block User"
+        message={`Are you sure you want to block ${blockConfirm?.username || 'this user'}? They won't be able to find or message you, and this chat will be removed from your list.`}
+        confirmText="Block"
+        type="danger"
+        isLoading={blocking}
+      />
+
+      {/* Report User Modal */}
+      <ReportModal
+        isOpen={!!reportData}
+        onClose={() => setReportData(null)}
+        targetId={reportData?.userId || ''}
+        targetType="user"
+        targetName={reportData?.username}
       />
     </View>
   );
@@ -281,6 +471,42 @@ const styles = StyleSheet.create({
   },
   clearButton: {
     padding: 4,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 16,
+  },
+  tab: {
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomColor: '#2563eb',
+  },
+  tabText: {
+    fontSize: 15,
+    color: '#71717a',
+    fontWeight: '600',
+  },
+  activeTabText: {
+    color: '#f4f4f5',
+  },
+  requestBadge: {
+    backgroundColor: '#2563eb',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
+  },
+  requestBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   errorContainer: {
     margin: 16,
@@ -395,6 +621,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  acceptButton: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  declineButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  declineButtonText: {
+    color: '#e4e4e7',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -440,5 +695,40 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#18181b',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  menuTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#f4f4f5',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: '#f4f4f5',
+    marginLeft: 12,
+    fontWeight: '500',
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#27272a',
+    marginVertical: 8,
   },
 });

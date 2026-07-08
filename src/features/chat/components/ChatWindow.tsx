@@ -24,6 +24,15 @@ import { Message } from '../types';
 import { getAvatarColor, formatDateSeparator, isSameDay } from '../utils/format';
 import { AttachmentSheet } from './AttachmentSheet';
 import { useMediaPicker } from '../hooks/useMediaPicker';
+import { GiphyPicker } from './GiphyPicker';
+import { Audio } from 'expo-av';
+import { chatApi } from '../api';
+import { ForwardMessageModal } from '../../../components/ForwardMessageModal';
+import { useChatList } from '../hooks/useChatList';
+import { ChatSidebar } from './ChatSidebar';
+import { useCalls } from '../hooks/useCalls';
+import { CallModal } from '../../../components/CallModal';
+import { MediaViewer } from '../../../components/MediaViewer';
 
 interface ChatWindowProps {
   chatId: string;
@@ -57,8 +66,21 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const flatListRef = useRef<FlatList<ListItem>>(null);
   const shouldScrollRef = useRef(true);
   
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [selectedMessageForMenu, setSelectedMessageForMenu] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  
+  const [showGiphyPicker, setShowGiphyPicker] = useState(false);
+  const [giphyType, setGiphyType] = useState<'gifs' | 'stickers'>('gifs');
 
-  const { displayName, isGroup, loading: chatLoading, error: chatError } = useChatDetails(chatId, currentUserId);
+  // Voice recording state
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const { chat, displayName, isGroup, loading: chatLoading, error: chatError } = useChatDetails(chatId, currentUserId);
   const {
     messages,
     loading: messagesLoading,
@@ -69,7 +91,11 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     sendMessage,
     retryMessage,
     sendMediaMessage,
+    forwardMessage,
   } = useChatMessages({ chatId, currentUserId });
+
+  const { chats } = useChatList(currentUserId);
+  const { incomingCall, activeCall, initiateCall, acceptCall, rejectCall, endCall } = useCalls(user);
 
   const listItems = buildListItems(messages);
   const avatarColor = getAvatarColor(chatId);
@@ -93,6 +119,47 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
     );
   }, [user, pickFromLibrary, pickFromCamera, sendMediaMessage]);
+
+  const handlePickGiphy = useCallback(async (url: string) => {
+    if (!user) return;
+    shouldScrollRef.current = true;
+    await sendMediaMessage(
+      { uri: url, fileName: `giphy_${Date.now()}.gif`, mimeType: 'image/gif', type: 'gif' },
+      { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
+    );
+  }, [user, sendMediaMessage]);
+
+  const handleStartRecording = async () => {
+    try {
+      await Audio.requestPermissionsAsync();
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(recording);
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (!recording || !user) return;
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      setIsRecording(false);
+      setRecording(null);
+      
+      if (uri) {
+        shouldScrollRef.current = true;
+        await sendMediaMessage(
+          { uri, fileName: `audio_${Date.now()}.m4a`, mimeType: 'audio/m4a', type: 'audio' },
+          { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
+        );
+      }
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+    }
+  };
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -134,14 +201,43 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     if (!user || !inputText.trim()) return;
     const text = inputText;
     setInputText('');
+    const replyToId = replyingTo?._id;
+    const editId = editingMessage?._id;
+    
+    setReplyingTo(null);
+    setEditingMessage(null);
     shouldScrollRef.current = true;
-    await sendMessage(text, {
-      _id: user._id,
-      username: user.username,
-      email: user.email,
-      avatar: user.avatar,
-    });
-  }, [user, inputText, sendMessage]);
+    
+    if (editId) {
+      try {
+        await chatApi.editMessage(editId, text);
+      } catch (err) {
+        console.error(err);
+      }
+      return;
+    }
+
+    // Check if we need to call raw API to include replyTo
+    if (replyToId) {
+      try {
+        await chatApi.sendMessage({
+          chatId,
+          senderId: user._id,
+          text,
+          replyTo: replyToId
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    } else {
+      await sendMessage(text, {
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        avatar: user.avatar,
+      });
+    }
+  }, [user, inputText, sendMessage, replyingTo, editingMessage, chatId]);
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
@@ -169,6 +265,9 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         isOwn={isOwn}
         showSenderName={isGroup}
         onRetry={() => retryMessage(item.message)}
+        onLongPress={() => setSelectedMessageForMenu(item.message)}
+        onSwipeReply={() => setReplyingTo(item.message)}
+        onPressMedia={(url, type) => setViewingMedia({ url, type })}
       />
     );
   }, [currentUserId, isGroup, retryMessage]);
@@ -186,14 +285,28 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
           <Feather name="arrow-left" size={24} color="#f4f4f5" />
         </TouchableOpacity>
-        <View style={[styles.headerAvatar, { backgroundColor: avatarColor }]}>
+        <TouchableOpacity style={[styles.headerAvatar, { backgroundColor: avatarColor }]} onPress={() => setShowSidebar(true)}>
           <Text style={styles.headerAvatarText}>{avatarLetter}</Text>
-        </View>
-        <View style={styles.headerInfo}>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerInfo} onPress={() => setShowSidebar(true)}>
           <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
           {isGroup && <Text style={styles.headerSubtitle}>Group chat</Text>}
+        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {!isGroup && (
+            <>
+              <TouchableOpacity style={styles.headerActionBtn} onPress={() => initiateCall(chatId, chat?.participants.find(p => p._id !== currentUserId)?._id || '', displayName, undefined, 'voice')}>
+                <Feather name="phone" size={20} color="#f4f4f5" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.headerActionBtn} onPress={() => initiateCall(chatId, chat?.participants.find(p => p._id !== currentUserId)?._id || '', displayName, undefined, 'video')}>
+                <Feather name="video" size={20} color="#f4f4f5" />
+              </TouchableOpacity>
+            </>
+          )}
+          <TouchableOpacity style={styles.headerActionBtn} onPress={() => setShowSidebar(true)}>
+            <Feather name="more-vertical" size={20} color="#f4f4f5" />
+          </TouchableOpacity>
         </View>
-        <View style={styles.headerButton} />
       </View>
 
       {/* Messages */}
@@ -240,6 +353,35 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         )}
       </View>
 
+      {/* Reply Preview */}
+      {replyingTo && (
+        <View style={styles.replyPreview}>
+           <View style={{ flex: 1 }}>
+             <Text style={styles.replyPreviewTitle}>Replying to {replyingTo.sender.username}</Text>
+             <Text style={styles.replyPreviewText} numberOfLines={1}>{replyingTo.text || 'Media message'}</Text>
+           </View>
+           <TouchableOpacity onPress={() => setReplyingTo(null)}>
+             <Feather name="x" size={20} color="#71717a" />
+           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Edit Preview */}
+      {editingMessage && (
+        <View style={styles.replyPreview}>
+           <View style={{ flex: 1 }}>
+             <Text style={styles.replyPreviewTitle}>Edit Message</Text>
+             <Text style={styles.replyPreviewText} numberOfLines={1}>{editingMessage.text}</Text>
+           </View>
+           <TouchableOpacity onPress={() => {
+             setEditingMessage(null);
+             setInputText('');
+           }}>
+             <Feather name="x" size={20} color="#71717a" />
+           </TouchableOpacity>
+        </View>
+      )}
+
       {/* Input */}
       <View style={styles.inputBar}>
         <TouchableOpacity
@@ -258,14 +400,26 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           multiline
           maxLength={4000}
         />
-        <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim()}
-          activeOpacity={0.7}
-        >
-          <Feather name="send" size={20} color="#fff" />
-        </TouchableOpacity>
+        
+        {inputText.trim() ? (
+          <TouchableOpacity
+            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!inputText.trim()}
+            activeOpacity={0.7}
+          >
+            <Feather name="send" size={20} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.sendButton}
+            onPressIn={handleStartRecording}
+            onPressOut={handleStopRecording}
+            activeOpacity={0.7}
+          >
+            <Feather name={isRecording ? "stop-circle" : "mic"} size={20} color="#fff" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <AttachmentSheet
@@ -274,10 +428,146 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         onPickLibrary={() => handlePickAndSend('library')}
         onTakePhoto={() => handlePickAndSend('photo')}
         onTakeVideo={() => handlePickAndSend('video')}
+        onPickGif={() => { setShowAttachSheet(false); setGiphyType('gifs'); setShowGiphyPicker(true); }}
+        onPickSticker={() => { setShowAttachSheet(false); setGiphyType('stickers'); setShowGiphyPicker(true); }}
       />
+      
+      <GiphyPicker
+        visible={showGiphyPicker}
+        onClose={() => setShowGiphyPicker(false)}
+        onSelect={handlePickGiphy}
+        type={giphyType}
+      />
+      
+      {/* Message Context Menu */}
+      {selectedMessageForMenu && (
+        <MessageContextMenu
+           message={selectedMessageForMenu}
+           onClose={() => setSelectedMessageForMenu(null)}
+           onReply={() => { setReplyingTo(selectedMessageForMenu); setSelectedMessageForMenu(null); }}
+           onEdit={() => {
+             setEditingMessage(selectedMessageForMenu);
+             setInputText(selectedMessageForMenu.text || '');
+             setSelectedMessageForMenu(null);
+           }}
+           onReact={async (emoji: string) => {
+             setSelectedMessageForMenu(null);
+             await chatApi.addReaction(selectedMessageForMenu._id, emoji);
+           }}
+           onPin={async () => {
+             setSelectedMessageForMenu(null);
+             await chatApi.pinMessage(selectedMessageForMenu._id);
+           }}
+           onDelete={async () => {
+             setSelectedMessageForMenu(null);
+             await chatApi.deleteMessage(selectedMessageForMenu._id, true);
+           }}
+           onForward={() => {
+             setForwardingMessage(selectedMessageForMenu);
+             setSelectedMessageForMenu(null);
+           }}
+           isOwn={selectedMessageForMenu.sender?._id === currentUserId}
+        />
+      )}
+
+      <ForwardMessageModal
+        isOpen={!!forwardingMessage}
+        onClose={() => setForwardingMessage(null)}
+        chats={chats}
+        currentUserId={currentUserId}
+        onForward={async (selectedChatIds) => {
+          if (forwardingMessage) {
+            await forwardMessage(selectedChatIds, forwardingMessage.text || '', forwardingMessage.mediaUrl, forwardingMessage.mediaType);
+          }
+        }}
+      />
+
+      {chat && (
+        <ChatSidebar
+          isOpen={showSidebar}
+          onClose={() => setShowSidebar(false)}
+          chat={chat}
+          currentUserId={currentUserId}
+        />
+      )}
+
+      {(incomingCall || activeCall) && (
+        <CallModal
+          incomingCall={incomingCall}
+          activeCall={activeCall}
+          onAccept={acceptCall}
+          onReject={rejectCall}
+          onEnd={endCall}
+        />
+      )}
+
+      {viewingMedia && (
+        <MediaViewer
+          visible={!!viewingMedia}
+          onClose={() => setViewingMedia(null)}
+          mediaUrl={viewingMedia.url}
+          mediaType={viewingMedia.type}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 };
+
+// Internal component for context menu
+import { Modal } from 'react-native';
+const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin, onDelete, onForward, isOwn }: any) => {
+  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  
+  // 15 minutes window for editing
+  const canEdit = isOwn && 
+                  !message.isDeletedForEveryone && 
+                  message.text && 
+                  !message.mediaUrl &&
+                  Date.now() - new Date(message.createdAt).getTime() < 15 * 60 * 1000;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+       <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+         <View style={styles.contextMenu}>
+           <View style={styles.emojiRow}>
+             {emojis.map(emoji => (
+               <TouchableOpacity key={emoji} onPress={() => onReact(emoji)} style={styles.emojiButton}>
+                 <Text style={styles.emojiText}>{emoji}</Text>
+               </TouchableOpacity>
+             ))}
+           </View>
+           <View style={styles.menuDivider} />
+           <TouchableOpacity style={styles.contextMenuItem} onPress={onReply}>
+             <Feather name="corner-up-left" size={20} color="#f4f4f5" />
+             <Text style={styles.contextMenuItemText}>Reply</Text>
+           </TouchableOpacity>
+           
+           {canEdit && (
+             <TouchableOpacity style={styles.contextMenuItem} onPress={onEdit}>
+               <Feather name="edit-2" size={20} color="#f4f4f5" />
+               <Text style={styles.contextMenuItemText}>Edit</Text>
+             </TouchableOpacity>
+           )}
+
+           <TouchableOpacity style={styles.contextMenuItem} onPress={onPin}>
+             <Feather name="map-pin" size={20} color="#f4f4f5" />
+             <Text style={styles.contextMenuItemText}>Pin</Text>
+           </TouchableOpacity>
+           <TouchableOpacity style={styles.contextMenuItem} onPress={onForward}>
+             <Feather name="corner-up-right" size={20} color="#f4f4f5" />
+             <Text style={styles.contextMenuItemText}>Forward</Text>
+           </TouchableOpacity>
+           {isOwn && (
+             <TouchableOpacity style={styles.contextMenuItem} onPress={onDelete}>
+               <Feather name="trash-2" size={20} color="#ef4444" />
+               <Text style={[styles.contextMenuItemText, { color: '#ef4444' }]}>Delete</Text>
+             </TouchableOpacity>
+           )}
+         </View>
+       </TouchableOpacity>
+    </Modal>
+  )
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -324,6 +614,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#71717a',
     marginTop: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerActionBtn: {
+    padding: 8,
+    marginLeft: 4,
   },
   messagesContainer: {
     flex: 1,
@@ -426,4 +724,63 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181b',
+    marginHorizontal: 12,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2563eb',
+  },
+  replyPreviewTitle: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  replyPreviewText: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    marginTop: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contextMenu: {
+    backgroundColor: '#18181b',
+    borderRadius: 16,
+    padding: 16,
+    width: 250,
+  },
+  emojiRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  emojiButton: {
+    padding: 6,
+  },
+  emojiText: {
+    fontSize: 24,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#27272a',
+    marginVertical: 8,
+  },
+  contextMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  contextMenuItemText: {
+    color: '#f4f4f5',
+    fontSize: 16,
+    marginLeft: 12,
+  }
 });

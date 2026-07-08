@@ -8,13 +8,20 @@ interface AttachmentSheetProps {
   onPickLibrary: () => void;
   onTakePhoto: () => void;
   onTakeVideo: () => void;
+  onPickGif?: () => void;
+  onPickSticker?: () => void;
+  hideGifSticker?: boolean;
 }
 
-export const AttachmentSheet = ({ visible, onClose, onPickLibrary, onTakePhoto, onTakeVideo }: AttachmentSheetProps) => {
-  const options = [
+export const AttachmentSheet = ({ visible, onClose, onPickLibrary, onTakePhoto, onTakeVideo, onPickGif, onPickSticker, hideGifSticker }: AttachmentSheetProps) => {
+  const allOptions = [
     { icon: 'image', label: 'Photo & Video Library', onPress: onPickLibrary },
     { icon: 'camera', label: 'Take Photo', onPress: onTakePhoto },
     { icon: 'video', label: 'Record Video', onPress: onTakeVideo },
+    ...(!hideGifSticker ? [
+      { icon: 'smile', label: 'Send GIF', onPress: onPickGif || (() => {}) },
+      { icon: 'star', label: 'Send Sticker', onPress: onPickSticker || (() => {}) },
+    ] : []),
   ] as const;
 
   return (
@@ -22,7 +29,7 @@ export const AttachmentSheet = ({ visible, onClose, onPickLibrary, onTakePhoto, 
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
-          {options.map((opt) => (
+          {allOptions.map((opt) => (
             <TouchableOpacity
               key={opt.label}
               style={styles.option}
@@ -33,7 +40,7 @@ export const AttachmentSheet = ({ visible, onClose, onPickLibrary, onTakePhoto, 
               }}
             >
               <View style={styles.iconCircle}>
-                <Feather name={opt.icon} size={20} color="#2563eb" />
+                <Feather name={opt.icon as any} size={20} color="#2563eb" />
               </View>
               <Text style={styles.optionText}>{opt.label}</Text>
             </TouchableOpacity>

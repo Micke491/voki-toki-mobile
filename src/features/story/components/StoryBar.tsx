@@ -116,6 +116,7 @@ export const StoryBar = () => {
         onPickLibrary={() => handleAddStory('library')}
         onTakePhoto={() => handleAddStory('photo')}
         onTakeVideo={() => handleAddStory('video')}
+        hideGifSticker
       />
     </View>
   );

@@ -39,6 +39,34 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     });
   }, []);
 
+  const deleteMessageForEveryone = useCallback(async (messageId: string) => {
+    try {
+      await chatApi.deleteMessageForEveryone(messageId);
+      // Event listener will handle the update
+    } catch (error) {
+      console.error('Error deleting message for everyone:', error);
+    }
+  }, []);
+
+  const forwardMessage = useCallback(async (
+    targetChatIds: string[],
+    messageText: string,
+    mediaUrl?: string,
+    mediaType?: string
+  ) => {
+    if (!targetChatIds.length) return;
+    
+    try {
+      const promises = targetChatIds.map(id =>
+        chatApi.sendMessage({ chatId: id, senderId: currentUserId, text: messageText, mediaUrl, mediaType })
+      );
+      await Promise.all(promises);
+    } catch (error) {
+      console.error('Error forwarding message:', error);
+      throw error;
+    }
+  }, [currentUserId]);
+
   const fetchMessages = useCallback(async (before?: string) => {
     try {
       if (!before) {
@@ -233,7 +261,7 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
   }, [chatId, currentUserId, setMessages]);
 
   const sendMediaMessage = useCallback(async (
-    media: { uri: string; fileName: string; mimeType: string; type: 'image' | 'video' },
+    media: { uri: string; fileName: string; mimeType: string; type: 'image' | 'video' | 'audio' | 'gif' | 'sticker' | 'call' },
     sender: Message['sender'],
     caption?: string
   ) => {
@@ -253,14 +281,32 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     setMessages(prev => [...prev, optimistic]);
 
     try {
-      const uploaded = await chatApi.uploadChatMedia(media.uri, media.fileName, media.mimeType);
+      // For GIFs/stickers with external URLs, skip upload and send directly
+      const isExternalUrl = media.uri.startsWith('http://') || media.uri.startsWith('https://');
+      const isGifOrSticker = media.type === 'gif' || media.type === 'sticker';
+
+      let mediaUrl: string;
+      let mediaType: string;
+      let mediaPublicId: string | undefined;
+
+      if (isGifOrSticker && isExternalUrl) {
+        mediaUrl = media.uri;
+        mediaType = media.type;
+        mediaPublicId = undefined;
+      } else {
+        const uploaded = await chatApi.uploadChatMedia(media.uri, media.fileName, media.mimeType);
+        mediaUrl = uploaded.url;
+        mediaType = uploaded.mediaType;
+        mediaPublicId = uploaded.publicId;
+      }
+
       const { message } = await chatApi.sendMessage({
         chatId,
         senderId: currentUserId,
         text: caption || '',
-        mediaUrl: uploaded.url,
-        mediaType: uploaded.mediaType,
-        mediaPublicId: uploaded.publicId,
+        mediaUrl,
+        mediaType,
+        mediaPublicId,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
     } catch {
@@ -278,5 +324,7 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     sendMessage,
     retryMessage,
     sendMediaMessage,
+    deleteMessageForEveryone,
+    forwardMessage,
   };
 }

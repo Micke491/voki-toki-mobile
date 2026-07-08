@@ -5,10 +5,17 @@ import { ChatListItem, ChatParticipant } from '../types';
 
 export function useChatList(currentUserId: string | undefined) {
   const [chats, setChats] = useState<ChatListItem[]>([]);
+  const [requests, setRequests] = useState<ChatListItem[]>([]);
+  const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
+  const [mutedChatIds, setMutedChatIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  const [blockConfirm, setBlockConfirm] = useState<{ chatId: string; userId: string; username: string } | null>(null);
+  const [reportData, setReportData] = useState<{ userId: string; username: string } | null>(null);
+  const [blocking, setBlocking] = useState(false);
 
   const currentUserIdRef = useRef(currentUserId);
   useEffect(() => {
@@ -18,8 +25,16 @@ export function useChatList(currentUserId: string | undefined) {
   const fetchChats = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await chatApi.getChats();
-      setChats(data);
+      const [chatsData, requestsData, pinnedData, mutedData] = await Promise.all([
+        chatApi.getChats().catch(() => []),
+        chatApi.getChatRequests().catch(() => []),
+        chatApi.getPinnedChats().catch(() => ({ pinnedChats: [] })),
+        chatApi.getMutedChats().catch(() => ({ mutedChats: [] }))
+      ]);
+      setChats(chatsData);
+      setRequests(requestsData);
+      setPinnedChatIds(pinnedData.pinnedChats || []);
+      setMutedChatIds(mutedData.mutedChats ? mutedData.mutedChats.map((m: any) => m.chatId) : []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load chats');
@@ -166,13 +181,21 @@ export function useChatList(currentUserId: string | undefined) {
   }, [currentUserId]);
 
   const filteredChats = useMemo(() => {
-    return chats.filter(chat => {
+    let sorted = [...chats].sort((a, b) => {
+      const aPinned = pinnedChatIds.includes(a._id);
+      const bPinned = pinnedChatIds.includes(b._id);
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+      return 0;
+    });
+
+    return sorted.filter(chat => {
       if (!searchQuery) return true;
       const otherUser = getOtherParticipant(chat);
       const chatName = chat.isGroupChat ? chat.name : (otherUser?.username || 'Unknown');
       return chatName?.toLowerCase().includes(searchQuery.toLowerCase());
     });
-  }, [chats, searchQuery, getOtherParticipant]);
+  }, [chats, searchQuery, getOtherParticipant, pinnedChatIds]);
 
   const handleRemoveChat = useCallback(async (chatId: string) => {
     try {
@@ -183,8 +206,91 @@ export function useChatList(currentUserId: string | undefined) {
     }
   }, []);
 
+  const handleAcceptRequest = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.acceptChatRequest(chatId);
+      const requestToAccept = requests.find(r => r._id === chatId);
+      if (requestToAccept) {
+        setChats(prev => [requestToAccept, ...prev]);
+        setRequests(prev => prev.filter(r => r._id !== chatId));
+      }
+    } catch (error) {
+      console.error('Error accepting request:', error);
+    }
+  }, [requests]);
+
+  const handleRejectRequest = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.rejectChatRequest(chatId);
+      setRequests(prev => prev.filter(r => r._id !== chatId));
+    } catch (error) {
+      console.error('Error rejecting request:', error);
+    }
+  }, []);
+
+  const handlePinChat = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.pinChat(chatId);
+      setPinnedChatIds(prev => [...prev, chatId]);
+    } catch (error) {
+      console.error('Error pinning chat:', error);
+    }
+  }, []);
+
+  const handleUnpinChat = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.unpinChat(chatId);
+      setPinnedChatIds(prev => prev.filter(id => id !== chatId));
+    } catch (error) {
+      console.error('Error unpinning chat:', error);
+    }
+  }, []);
+
+  const handleMuteChat = useCallback(async (chatId: string, durationHours: number = -1) => {
+    try {
+      await chatApi.muteChat(chatId, durationHours);
+      setMutedChatIds(prev => [...prev, chatId]);
+    } catch (error) {
+      console.error('Error muting chat:', error);
+    }
+  }, []);
+
+  const handleUnmuteChat = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.unmuteChat(chatId);
+      setMutedChatIds(prev => prev.filter(id => id !== chatId));
+    } catch (error) {
+      console.error('Error unmuting chat:', error);
+    }
+  }, []);
+
+  const handleLeaveGroup = useCallback(async (chatId: string) => {
+    try {
+      await chatApi.leaveGroup(chatId);
+      setChats(prev => prev.filter(c => c._id !== chatId));
+    } catch (error) {
+      console.error('Error leaving group:', error);
+    }
+  }, []);
+
+  const handleBlockUser = useCallback(async (targetUserId: string, chatId: string) => {
+    setBlocking(true);
+    try {
+      await chatApi.blockUser(targetUserId);
+      setChats(prev => prev.filter(c => c._id !== chatId));
+    } catch (error) {
+      console.error('Error blocking user:', error);
+    } finally {
+      setBlocking(false);
+      setBlockConfirm(null);
+    }
+  }, []);
+
   return {
     chats,
+    requests,
+    pinnedChatIds,
+    mutedChatIds,
     filteredChats,
     loading,
     refreshing,
@@ -195,5 +301,18 @@ export function useChatList(currentUserId: string | undefined) {
     onRefresh,
     getOtherParticipant,
     handleRemoveChat,
+    handleLeaveGroup,
+    handleAcceptRequest,
+    handleRejectRequest,
+    handlePinChat,
+    handleUnpinChat,
+    handleMuteChat,
+    handleUnmuteChat,
+    handleBlockUser,
+    blockConfirm,
+    setBlockConfirm,
+    reportData,
+    setReportData,
+    blocking,
   };
 }

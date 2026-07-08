@@ -94,4 +94,119 @@ export const chatApi = {
     const response = await apiClient.get(`/chat/media/list?chatId=${chatId}`);
     return response.data;
   },
+
+  // Advanced Web Parity APIs
+  getPinnedChats: async (): Promise<{ pinnedChats: string[] }> => {
+    const response = await apiClient.get('/chats/pinned');
+    return response.data;
+  },
+
+  getMutedChats: async (): Promise<{ mutedChats: any[] }> => {
+    const response = await apiClient.get('/chats/muted');
+    return response.data;
+  },
+
+  pinChat: async (chatId: string): Promise<void> => {
+    await apiClient.post('/chats/pin', { chatId });
+  },
+
+  unpinChat: async (chatId: string): Promise<void> => {
+    await apiClient.post(`/chats/unpin?chatId=${chatId}`);
+  },
+
+  muteChat: async (chatId: string, durationHours: number): Promise<void> => {
+    await apiClient.post('/chats/mute', { chatId, durationHours });
+  },
+
+  unmuteChat: async (chatId: string): Promise<void> => {
+    await apiClient.post(`/chats/unmute?chatId=${chatId}`);
+  },
+
+  getChatRequests: async (): Promise<ChatListItem[]> => {
+    const response = await apiClient.get('/chats/requests');
+    return response.data;
+  },
+
+  acceptChatRequest: async (chatId: string): Promise<void> => {
+    await apiClient.post(`/chats/${chatId}/accept`);
+  },
+
+  rejectChatRequest: async (chatId: string): Promise<void> => {
+    await apiClient.post(`/chats/${chatId}/reject`);
+  },
+
+  addReaction: async (messageId: string, emoji: string): Promise<void> => {
+    await apiClient.post(`/chat/message/${messageId}/reaction`, { emoji });
+  },
+
+  removeReaction: async (messageId: string, emoji: string): Promise<void> => {
+    await apiClient.delete(`/chat/message/${messageId}/reaction`, { data: { emoji } });
+  },
+
+  deleteMessage: async (messageId: string, forEveryone: boolean = false): Promise<void> => {
+    await apiClient.delete(`/chat/message/${messageId}?forEveryone=${forEveryone}`);
+  },
+
+  deleteMessageForEveryone: async (messageId: string): Promise<void> => {
+    await apiClient.delete(`/chat/message/${messageId}?forEveryone=true`);
+  },
+
+  editMessage: async (messageId: string, text: string): Promise<{ message: Message }> => {
+    const response = await apiClient.put(`/chat/message/${messageId}`, { text });
+    return response.data;
+  },
+
+  pinMessage: async (messageId: string): Promise<void> => {
+    await apiClient.post(`/chat/message/${messageId}/pin`);
+  },
+
+  unpinMessage: async (messageId: string): Promise<void> => {
+    await apiClient.post(`/chat/message/${messageId}/unpin`);
+  },
+
+  // Block & Report APIs
+  blockUser: async (targetUserId: string): Promise<void> => {
+    await apiClient.post('/users/block', { targetUserId });
+  },
+
+  reportUser: async (targetId: string, targetType: string, category: string, details?: string): Promise<void> => {
+    await apiClient.post('/reports', { targetId, targetType, category, details });
+  },
+
+  // Call APIs
+  initiateCall: async (payload: { call_id: string; caller_id: string; callee_id: string; call_type: string; caller_name: string; caller_avatar?: string; chat_id: string; }): Promise<{ token: string }> => {
+    const response = await apiClient.post('/call/initiate', payload);
+    return response.data;
+  },
+  
+  acceptCall: async (callId: string, userId: string): Promise<{ token: string }> => {
+    const response = await apiClient.post('/call/accept', { call_id: callId, user_id: userId });
+    return response.data;
+  },
+  
+  rejectCall: async (callId: string, userId: string): Promise<void> => {
+    await apiClient.post('/call/reject', { call_id: callId, user_id: userId });
+  },
+  
+  endCall: async (callId: string, userId: string): Promise<void> => {
+    await apiClient.post('/call/end', { call_id: callId, user_id: userId });
+  },
+
+  // Admin APIs
+  removeParticipant: async (chatId: string, userId: string): Promise<void> => {
+    await apiClient.post(`/chat/${chatId}/remove`, { userId });
+  },
+  
+  changeAdmin: async (chatId: string, newAdminId: string): Promise<void> => {
+    await apiClient.post(`/chat/${chatId}/admin`, { groupAdmin: newAdminId });
+  },
+  
+  leaveGroup: async (chatId: string): Promise<void> => {
+    await apiClient.post(`/chat/${chatId}/leave`);
+  },
+
+  createGroupChat: async (name: string, participantIds: string[]): Promise<ChatListItem> => {
+    const response = await apiClient.post('/chats/group', { name, participants: participantIds });
+    return response.data;
+  },
 };
