@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   BackHandler,
+  Animated,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -41,10 +42,12 @@ interface ChatWindowProps {
 
 type ListItem =
   | { type: 'date'; id: string; label: string }
-  | { type: 'message'; id: string; message: Message };
+  | { type: 'message'; id: string; message: Message }
+  | { type: 'unread-separator'; id: string };
 
-function buildListItems(messages: Message[]): ListItem[] {
+function buildListItems(messages: Message[], firstUnreadId: string | null): ListItem[] {
   const items: ListItem[] = [];
+
   messages.forEach((message, index) => {
     const prev = index > 0 ? messages[index - 1] : null;
     if (!prev || !isSameDay(prev.createdAt, message.createdAt)) {
@@ -54,6 +57,14 @@ function buildListItems(messages: Message[]): ListItem[] {
         label: formatDateSeparator(message.createdAt),
       });
     }
+
+    if (firstUnreadId && message._id === firstUnreadId) {
+      items.push({
+        type: 'unread-separator',
+        id: 'unread-separator',
+      });
+    }
+
     items.push({ type: 'message', id: message._id, message });
   });
   return items;
@@ -65,6 +76,8 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList<ListItem>>(null);
   const shouldScrollRef = useRef(true);
+  const isTypingRef = useRef(false);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
@@ -76,9 +89,16 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [showGiphyPicker, setShowGiphyPicker] = useState(false);
   const [giphyType, setGiphyType] = useState<'gifs' | 'stickers'>('gifs');
 
-  // Voice recording state
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const waveformAnims = useRef(
+    Array.from({ length: 24 }, () => new Animated.Value(0.3))
+  ).current;
+
+  const badgeScaleAnim = useRef(new Animated.Value(0)).current;
 
   const { chat, displayName, isGroup, loading: chatLoading, error: chatError } = useChatDetails(chatId, currentUserId);
   const {
@@ -92,12 +112,23 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     retryMessage,
     sendMediaMessage,
     forwardMessage,
+    unreadCountBelow,
+    showNewMessageBadge,
+    firstUnreadId,
+    updateScrollPosition,
+    resetUnreadBelow,
+    pinnedMessages,
+    typingUsers,
   } = useChatMessages({ chatId, currentUserId });
 
-  const { chats } = useChatList(currentUserId);
+  const { chats } = useChatList(currentUserId, chatId);
   const { incomingCall, activeCall, initiateCall, acceptCall, rejectCall, endCall } = useCalls(user);
 
-  const listItems = buildListItems(messages);
+  const listItems = useMemo(
+    () => buildListItems(messages, firstUnreadId).reverse(),
+    [messages, firstUnreadId]
+  );
+  const hasScrolledInitiallyRef = useRef(false);
   const avatarColor = getAvatarColor(chatId);
   const avatarLetter = displayName.charAt(0).toUpperCase();
   const isLoading = chatLoading || messagesLoading;
@@ -105,6 +136,15 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
 
   const [showAttachSheet, setShowAttachSheet] = useState(false);
   const { pickFromLibrary, pickFromCamera } = useMediaPicker();
+
+  useEffect(() => {
+    Animated.spring(badgeScaleAnim, {
+      toValue: showNewMessageBadge && unreadCountBelow > 0 ? 1 : 0,
+      friction: 6,
+      tension: 120,
+      useNativeDriver: true,
+    }).start();
+  }, [showNewMessageBadge, unreadCountBelow, badgeScaleAnim]);
 
   const handlePickAndSend = useCallback(async (source: 'library' | 'photo' | 'video') => {
     if (!user) return;
@@ -124,41 +164,112 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     if (!user) return;
     shouldScrollRef.current = true;
     await sendMediaMessage(
-      { uri: url, fileName: `giphy_${Date.now()}.gif`, mimeType: 'image/gif', type: 'gif' },
+      { uri: url, fileName: `giphy_${Date.now()}.gif`, mimeType: 'image/gif', type: giphyType === 'stickers' ? 'sticker' : 'gif' },
       { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
     );
-  }, [user, sendMediaMessage]);
+  }, [user, sendMediaMessage, giphyType]);
+
+  // Start waveform animation loop
+  const startWaveformAnimation = useCallback(() => {
+    const animate = () => {
+      const animations = waveformAnims.map((anim) => {
+        const target = 0.3 + Math.random() * 0.7;
+        return Animated.timing(anim, {
+          toValue: target,
+          duration: 120 + Math.random() * 180,
+          useNativeDriver: true,
+        });
+      });
+      Animated.parallel(animations).start(() => {
+        if (recordingTimerRef.current) animate();
+      });
+    };
+    animate();
+  }, [waveformAnims]);
 
   const handleStartRecording = async () => {
     try {
       await Audio.requestPermissionsAsync();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      const customOptions = {
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        android: {
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY.android,
+          extension: '.mp3',
+        },
+        ios: {
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY.ios,
+          extension: '.mp3',
+        },
+      };
+      const { recording } = await Audio.Recording.createAsync(customOptions);
       setRecording(recording);
       setIsRecording(true);
+      setRecordingDuration(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+      startWaveformAnimation();
     } catch (err) {
       console.error('Failed to start recording', err);
     }
   };
 
-  const handleStopRecording = async () => {
+  const handleStopAndSend = async () => {
     if (!recording || !user) return;
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       setIsRecording(false);
       setRecording(null);
+      setRecordingDuration(0);
       
       if (uri) {
         shouldScrollRef.current = true;
         await sendMediaMessage(
-          { uri, fileName: `audio_${Date.now()}.m4a`, mimeType: 'audio/m4a', type: 'audio' },
+          { uri, fileName: `audio_${Date.now()}.mp3`, mimeType: 'audio/mpeg', type: 'audio' },
           { _id: user._id, username: user.username, email: user.email, avatar: user.avatar }
         );
       }
     } catch (err) {
       console.error('Failed to stop recording', err);
     }
+  };
+
+  const handleCancelRecording = async () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (recording) {
+      try {
+        await recording.stopAndUnloadAsync();
+      } catch (err) {
+        // ignore
+      }
+    }
+    setRecording(null);
+    setIsRecording(false);
+    setRecordingDuration(0);
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+    };
+  }, []);
+
+  const formatRecordingTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   const handleBack = useCallback(() => {
@@ -177,30 +288,109 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     return () => sub.remove();
   }, [handleBack]);
 
+  useEffect(() => {
+    hasScrolledInitiallyRef.current = false;
+  }, [chatId]);
+
   const scrollToBottom = useCallback((animated = true) => {
     if (listItems.length === 0) return;
-    flatListRef.current?.scrollToEnd({ animated });
+    flatListRef.current?.scrollToOffset({ offset: 0, animated });
   }, [listItems.length]);
 
   useEffect(() => {
-    if (!messagesLoading && messages.length > 0 && shouldScrollRef.current) {
-      setTimeout(() => scrollToBottom(false), 50);
-    }
-  }, [messagesLoading, messages.length, scrollToBottom]);
+    if (messagesLoading || messages.length === 0 || hasScrolledInitiallyRef.current) return;
+
+    const timer = setTimeout(() => {
+      if (firstUnreadId) {
+        const unreadIndex = listItems.findIndex(i => i.type === 'unread-separator');
+        if (unreadIndex !== -1) {
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: Math.max(0, unreadIndex),
+              animated: false,
+              viewPosition: 0.1,
+            });
+          } catch {
+            flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+          }
+        } else {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        }
+      } else {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
+      hasScrolledInitiallyRef.current = true;
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [messagesLoading, messages.length, firstUnreadId, listItems]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      const last = messages[messages.length - 1];
-      if (last.sender?._id === currentUserId || last.status === 'sending') {
-        scrollToBottom(true);
+    if (!hasScrolledInitiallyRef.current || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (last.sender?._id === currentUserId || last.status === 'sending') {
+      setTimeout(() => scrollToBottom(true), 50);
+    } else if (shouldScrollRef.current) {
+      setTimeout(() => scrollToBottom(true), 50);
+    }
+  }, [messages.length, currentUserId, scrollToBottom]);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (isTypingRef.current && user) {
+        chatApi.sendTypingStatus(chatId, user.username, false).catch(() => {});
+      }
+    };
+  }, [chatId, user]);
+
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+    if (!user) return;
+
+    if (text.trim().length > 0) {
+      if (!isTypingRef.current) {
+        isTypingRef.current = true;
+        chatApi.sendTypingStatus(chatId, user.username, true).catch(() => {});
+      }
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        if (isTypingRef.current) {
+          chatApi.sendTypingStatus(chatId, user.username, false).catch(() => {});
+          isTypingRef.current = false;
+        }
+      }, 2000);
+    } else {
+      if (isTypingRef.current) {
+        if (typingTimeoutRef.current) {
+          clearTimeout(typingTimeoutRef.current);
+        }
+        chatApi.sendTypingStatus(chatId, user.username, false).catch(() => {});
+        isTypingRef.current = false;
       }
     }
-  }, [messages, currentUserId, scrollToBottom]);
+  };
 
   const handleSend = useCallback(async () => {
     if (!user || !inputText.trim()) return;
     const text = inputText;
     setInputText('');
+
+    if (isTypingRef.current) {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      chatApi.sendTypingStatus(chatId, user.username, false).catch(() => {});
+      isTypingRef.current = false;
+    }
+
     const replyToId = replyingTo?._id;
     const editId = editingMessage?._id;
     
@@ -217,7 +407,6 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       return;
     }
 
-    // Check if we need to call raw API to include replyTo
     if (replyToId) {
       try {
         await chatApi.sendMessage({
@@ -239,21 +428,34 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     }
   }, [user, inputText, sendMessage, replyingTo, editingMessage, chatId]);
 
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
-    shouldScrollRef.current = distanceFromBottom < 80;
+  const handleScrollToNewMessages = useCallback(() => {
+    scrollToBottom(true);
+    resetUnreadBelow();
+  }, [scrollToBottom, resetUnreadBelow]);
 
-    if (contentOffset.y < 40 && hasMore && !loadingMore) {
-      loadMore();
-    }
-  }, [hasMore, loadingMore, loadMore]);
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset } = event.nativeEvent;
+    const nearBottom = contentOffset.y < 80;
+    
+    shouldScrollRef.current = nearBottom;
+    updateScrollPosition(nearBottom);
+  }, [updateScrollPosition]);
 
   const renderItem = useCallback(({ item }: ListRenderItemInfo<ListItem>) => {
     if (item.type === 'date') {
       return (
         <View style={styles.dateSeparator}>
           <Text style={styles.dateText}>{item.label}</Text>
+        </View>
+      );
+    }
+
+    if (item.type === 'unread-separator') {
+      return (
+        <View style={styles.unreadSeparator}>
+          <View style={styles.unreadLine} />
+          <Text style={styles.unreadSeparatorText}>New Messages</Text>
+          <View style={styles.unreadLine} />
         </View>
       );
     }
@@ -271,6 +473,49 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       />
     );
   }, [currentUserId, isGroup, retryMessage]);
+
+  const handleUnpinTop = useCallback(async () => {
+    if (pinnedMessages.length === 0) return;
+    try {
+      await chatApi.unpinMessage(chatId, pinnedMessages[0]._id);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [chatId, pinnedMessages]);
+
+  const handleJumpToPinned = useCallback(() => {
+    if (pinnedMessages.length === 0) return;
+    const pinnedId = pinnedMessages[0]._id;
+    const index = listItems.findIndex(item => item.type === 'message' && item.message._id === pinnedId);
+    if (index !== -1) {
+      try {
+        flatListRef.current?.scrollToIndex({
+          index,
+          animated: true,
+          viewPosition: 0.5,
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [listItems, pinnedMessages]);
+
+  const getPinnedMessagePreview = (msg: Message): string => {
+    if (msg.isDeletedForEveryone) return 'Message deleted';
+    if (msg.text) return msg.text;
+    if (msg.mediaType) {
+      const labels: Record<string, string> = {
+        image: 'Photo',
+        video: 'Video',
+        audio: 'Voice message',
+        gif: 'GIF',
+        sticker: 'Sticker',
+        call: 'Call',
+      };
+      return labels[msg.mediaType] || 'Attachment';
+    }
+    return 'Pinned Message';
+  };
 
   if (!user) return null;
 
@@ -309,6 +554,24 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         </View>
       </View>
 
+      {/* Pinned Messages Banner */}
+      {pinnedMessages.length > 0 && (
+         <View style={styles.pinnedBanner}>
+            <TouchableOpacity style={styles.pinnedBannerLeft} onPress={handleJumpToPinned} activeOpacity={0.8}>
+               <Feather name="map-pin" size={14} color="#2563eb" style={styles.pinnedBannerIcon} />
+               <View style={styles.pinnedBannerTextContainer}>
+                  <Text style={styles.pinnedBannerHeaderTitle}>Pinned Message</Text>
+                  <Text style={styles.pinnedBannerContent} numberOfLines={1}>
+                     {pinnedMessages[0].sender?.username || 'Someone'}: {getPinnedMessagePreview(pinnedMessages[0])}
+                  </Text>
+               </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.pinnedBannerUnpinButton} onPress={handleUnpinTop}>
+               <Feather name="x" size={16} color="#71717a" />
+            </TouchableOpacity>
+         </View>
+      )}
+
       {/* Messages */}
       <View style={styles.messagesContainer}>
         {isLoading && (
@@ -338,19 +601,67 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
             keyExtractor={item => item.id}
             renderItem={renderItem}
             contentContainerStyle={styles.messagesList}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            ListHeaderComponent={
+            inverted={true}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            maxToRenderPerBatch={15}
+            windowSize={11}
+            removeClippedSubviews={Platform.OS === 'android'}
+            initialNumToRender={20}
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 1,
+              autoscrollToTopThreshold: 10,
+            }}
+            onScrollToIndexFailed={(info) => {
+              setTimeout(() => {
+                try {
+                  flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+                } catch (e) {}
+              }, 300);
+            }}
+            ListFooterComponent={
               loadingMore ? (
                 <View style={styles.loadMore}>
-                  <ActivityIndicator size="small" color="#2563eb" />
+                  <View style={styles.loadMoreInner}>
+                    <ActivityIndicator size="small" color="#60a5fa" />
+                    <Text style={styles.loadMoreText}>Loading older messages...</Text>
+                  </View>
                 </View>
               ) : null
             }
           />
         )}
+
+        {/* New Message Floating Badge */}
+        <Animated.View
+          style={[
+            styles.newMessageBadge,
+            {
+              transform: [{ scale: badgeScaleAnim }],
+              opacity: badgeScaleAnim,
+            },
+          ]}
+          pointerEvents={showNewMessageBadge && unreadCountBelow > 0 ? 'auto' : 'none'}
+        >
+          <TouchableOpacity
+            style={styles.newMessageBadgeButton}
+            onPress={handleScrollToNewMessages}
+            activeOpacity={0.8}
+          >
+            <Feather name="chevron-down" size={20} color="#fff" />
+            {unreadCountBelow > 0 && (
+              <View style={styles.newMessageCount}>
+                <Text style={styles.newMessageCountText}>
+                  {unreadCountBelow > 99 ? '99+' : unreadCountBelow}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {/* Reply Preview */}
@@ -382,43 +693,87 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         </View>
       )}
 
+      {/* Typing Indicator Bar */}
+      {typingUsers && typingUsers.length > 0 && (
+        <View style={styles.typingIndicatorContainer}>
+          <Text style={styles.typingIndicatorText} numberOfLines={1}>
+            {typingUsers.length === 1
+              ? `${typingUsers[0]} is typing...`
+              : `${typingUsers.join(', ')} are typing...`}
+          </Text>
+        </View>
+      )}
+
       {/* Input */}
       <View style={styles.inputBar}>
-        <TouchableOpacity
-          style={styles.attachButton}
-          onPress={() => setShowAttachSheet(true)}
-          activeOpacity={0.7}
-        >
-          <Feather name="plus-circle" size={26} color="#71717a" />
-        </TouchableOpacity>
-        <TextInput
-          style={styles.input}
-          placeholder="Message..."
-          placeholderTextColor="#52525b"
-          value={inputText}
-          onChangeText={setInputText}
-          multiline
-          maxLength={4000}
-        />
-        
-        {inputText.trim() ? (
-          <TouchableOpacity
-            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-            onPress={handleSend}
-            disabled={!inputText.trim()}
-            activeOpacity={0.7}
-          >
-            <Feather name="send" size={20} color="#fff" />
-          </TouchableOpacity>
+        {isRecording ? (
+          <View style={styles.recordingBar}>
+            <Animated.View style={styles.recordingDot} />
+            <Text style={styles.recordingTimer}>{formatRecordingTime(recordingDuration)}</Text>
+            <View style={styles.waveformContainer}>
+              {waveformAnims.map((anim, i) => (
+                <Animated.View
+                  key={i}
+                  style={[
+                    styles.waveformBar,
+                    { transform: [{ scaleY: anim }] },
+                  ]}
+                />
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.recordingCancelBtn}
+              onPress={handleCancelRecording}
+              activeOpacity={0.7}
+            >
+              <Feather name="trash-2" size={20} color="#ef4444" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sendButton}
+              onPress={handleStopAndSend}
+              activeOpacity={0.7}
+            >
+              <Feather name="send" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
         ) : (
-          <TouchableOpacity
-            style={styles.sendButton}
-            onPressIn={handleStartRecording}
-            onPressOut={handleStopRecording}
-            activeOpacity={0.7}
-          >
-            <Feather name={isRecording ? "stop-circle" : "mic"} size={20} color="#fff" />
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={() => setShowAttachSheet(true)}
+              activeOpacity={0.7}
+            >
+              <Feather name="plus-circle" size={26} color="#71717a" />
+            </TouchableOpacity>
+            <TextInput
+              style={styles.input}
+              placeholder="Message..."
+              placeholderTextColor="#52525b"
+              value={inputText}
+              onChangeText={handleInputChange}
+              multiline
+              maxLength={2000}
+            />
+            
+            {inputText.trim() ? (
+              <TouchableOpacity
+                style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+                onPress={handleSend}
+                disabled={!inputText.trim()}
+                activeOpacity={0.7}
+              >
+                <Feather name="send" size={20} color="#fff" />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.micButton}
+                onPress={handleStartRecording}
+                activeOpacity={0.7}
+              >
+                <Feather name="mic" size={20} color="#fff" />
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
 
@@ -428,8 +783,8 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         onPickLibrary={() => handlePickAndSend('library')}
         onTakePhoto={() => handlePickAndSend('photo')}
         onTakeVideo={() => handlePickAndSend('video')}
-        onPickGif={() => { setShowAttachSheet(false); setGiphyType('gifs'); setShowGiphyPicker(true); }}
-        onPickSticker={() => { setShowAttachSheet(false); setGiphyType('stickers'); setShowGiphyPicker(true); }}
+        onPickGif={() => { setShowAttachSheet(false); setTimeout(() => { setGiphyType('gifs'); setShowGiphyPicker(true); }, 300); }}
+        onPickSticker={() => { setShowAttachSheet(false); setTimeout(() => { setGiphyType('stickers'); setShowGiphyPicker(true); }, 300); }}
       />
       
       <GiphyPicker
@@ -455,8 +810,17 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
              await chatApi.addReaction(selectedMessageForMenu._id, emoji);
            }}
            onPin={async () => {
+             const isCurrentlyPinned = selectedMessageForMenu.isPinned;
              setSelectedMessageForMenu(null);
-             await chatApi.pinMessage(selectedMessageForMenu._id);
+             try {
+               if (isCurrentlyPinned) {
+                 await chatApi.unpinMessage(chatId, selectedMessageForMenu._id);
+               } else {
+                 await chatApi.pinMessage(chatId, selectedMessageForMenu._id);
+               }
+             } catch (err) {
+               console.error(err);
+             }
            }}
            onDelete={async () => {
              setSelectedMessageForMenu(null);
@@ -513,12 +877,10 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   );
 };
 
-// Internal component for context menu
 import { Modal } from 'react-native';
 const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin, onDelete, onForward, isOwn }: any) => {
   const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
   
-  // 15 minutes window for editing
   const canEdit = isOwn && 
                   !message.isDeletedForEveryone && 
                   message.text && 
@@ -550,8 +912,15 @@ const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin,
            )}
 
            <TouchableOpacity style={styles.contextMenuItem} onPress={onPin}>
-             <Feather name="map-pin" size={20} color="#f4f4f5" />
-             <Text style={styles.contextMenuItemText}>Pin</Text>
+             <Feather 
+               name="map-pin" 
+               size={20} 
+               color={message.isPinned ? "#ef4444" : "#f4f4f5"} 
+               style={message.isPinned ? { transform: [{ rotate: '45deg' }] } : undefined} 
+             />
+             <Text style={[styles.contextMenuItemText, message.isPinned && { color: '#ef4444' }]}>
+               {message.isPinned ? "Unpin" : "Pin"}
+             </Text>
            </TouchableOpacity>
            <TouchableOpacity style={styles.contextMenuItem} onPress={onForward}>
              <Feather name="corner-up-right" size={20} color="#f4f4f5" />
@@ -623,6 +992,43 @@ const styles = StyleSheet.create({
     padding: 8,
     marginLeft: 4,
   },
+  // Pinned Messages Banner styles
+  pinnedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#18181b',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#27272a',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    zIndex: 20,
+  },
+  pinnedBannerLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pinnedBannerIcon: {
+    marginRight: 12,
+    transform: [{ rotate: '45deg' }],
+  },
+  pinnedBannerTextContainer: {
+    flex: 1,
+  },
+  pinnedBannerHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
+    marginBottom: 2,
+  },
+  pinnedBannerContent: {
+    fontSize: 13,
+    color: '#a1a1aa',
+  },
+  pinnedBannerUnpinButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
   messagesContainer: {
     flex: 1,
   },
@@ -662,8 +1068,32 @@ const styles = StyleSheet.create({
   },
   emptySubtitle: {
     color: '#71717a',
-    fontSize: 14,
-    textAlign: 'center',
+    fontSize: 15,
+  },
+  unreadSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+    marginHorizontal: 16,
+  },
+  unreadLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  unreadSeparatorText: {
+    color: '#3b82f6',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginHorizontal: 12,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
   },
   dateSeparator: {
     alignItems: 'center',
@@ -680,8 +1110,60 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   loadMore: {
-    paddingVertical: 12,
+    paddingVertical: 16,
     alignItems: 'center',
+  },
+  loadMoreInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 8,
+  },
+  loadMoreText: {
+    color: '#60a5fa',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  newMessageBadge: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    zIndex: 10,
+  },
+  newMessageBadgeButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  newMessageCount: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#09090b',
+  },
+  newMessageCountText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
   inputBar: {
     flexDirection: 'row',
@@ -782,5 +1264,63 @@ const styles = StyleSheet.create({
     color: '#f4f4f5',
     fontSize: 16,
     marginLeft: 12,
-  }
+  },
+  recordingBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#ef4444',
+  },
+  recordingTimer: {
+    color: '#f4f4f5',
+    fontSize: 15,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    minWidth: 36,
+  },
+  waveformContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 28,
+    gap: 2,
+  },
+  waveformBar: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    borderRadius: 2,
+    height: '100%',
+  },
+  recordingCancelBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  micButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  typingIndicatorContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: 'transparent',
+  },
+  typingIndicatorText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
 });

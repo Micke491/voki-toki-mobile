@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, FlatList, Image, ActivityIndicator, Alert, SafeAreaView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, FlatList, Image, ActivityIndicator, Alert, Linking } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { ChatDetails } from '../types';
 import { getAvatarColor } from '../utils/format';
 import { chatApi } from '../api';
+import { MediaViewer } from '../../../components/MediaViewer';
 
 interface ChatSidebarProps {
   isOpen: boolean;
@@ -21,9 +24,30 @@ export const ChatSidebar = ({
   onUpdateChat
 }: ChatSidebarProps) => {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [sharedMedia, setSharedMedia] = useState<any[]>([]);
+  const [loadingMedia, setLoadingMedia] = useState(false);
+  const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const router = useRouter();
 
   const isAdmin = chat.groupAdmin === currentUserId;
   const isGroup = chat.isGroupChat;
+  
+  useEffect(() => {
+    if (isOpen) {
+      const fetchMedia = async () => {
+        setLoadingMedia(true);
+        try {
+          const media = await chatApi.listMedia(chat._id);
+          setSharedMedia(media || []);
+        } catch (err) {
+          console.error('Failed to fetch media', err);
+        } finally {
+          setLoadingMedia(false);
+        }
+      };
+      fetchMedia();
+    }
+  }, [isOpen, chat._id]);
   
   const handleRemoveParticipant = async (userId: string, username: string) => {
     Alert.alert(
@@ -87,7 +111,8 @@ export const ChatSidebar = ({
             setLoadingAction("leave");
             try {
               await chatApi.leaveGroup(chat._id);
-              onClose(); // In a real app, this should navigate back to chat list
+              onClose();
+              router.replace('/tabs');
             } catch (err) {
               Alert.alert("Error", "Failed to leave group.");
             } finally {
@@ -149,47 +174,149 @@ export const ChatSidebar = ({
   return (
     <Modal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Feather name="chevron-down" size={24} color="#f4f4f5" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Chat Info</Text>
-          <View style={{ width: 40 }} />
-        </View>
+        <FlatList
+          ListHeaderComponent={
+            <>
+              <View style={styles.header}>
+                <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+                  <Feather name="chevron-down" size={24} color="#f4f4f5" />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>{isGroup ? 'Group Info' : 'User Info'}</Text>
+                <View style={{ width: 40 }} />
+              </View>
 
-        <View style={styles.infoSection}>
-          <View style={styles.mainAvatarContainer}>
-             <View style={[styles.mainAvatar, { backgroundColor: getAvatarColor(chat._id) }]}>
-               <Text style={styles.mainAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
-             </View>
-          </View>
-          <Text style={styles.titleText}>{displayName}</Text>
-          <Text style={styles.subtitleText}>{isGroup ? `${chat.participants.length} participants` : 'User'}</Text>
-        </View>
+              <View style={styles.infoSection}>
+                <View style={styles.mainAvatarContainer}>
+                   <View style={[styles.mainAvatar, { backgroundColor: getAvatarColor(chat._id) }]}>
+                     <Text style={styles.mainAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                   </View>
+                </View>
+                <Text style={styles.titleText}>{displayName}</Text>
+                <Text style={styles.subtitleText}>{isGroup ? `${chat.participants.length} participants` : 'User'}</Text>
+              </View>
 
-        {isGroup && (
-          <View style={styles.participantsSection}>
-            <Text style={styles.sectionTitle}>Participants</Text>
-            <FlatList
-              data={chat.participants}
-              keyExtractor={item => item._id}
-              renderItem={renderParticipant}
-              scrollEnabled={true}
-              style={{ maxHeight: 300 }}
-            />
-          </View>
-        )}
+              {isGroup && (
+                <View style={styles.participantsSection}>
+                  <Text style={styles.sectionTitle}>Participants</Text>
+                  {chat.participants.map((item) => (
+                    <React.Fragment key={item._id}>
+                      {renderParticipant({ item })}
+                    </React.Fragment>
+                  ))}
+                </View>
+              )}
 
-        <View style={styles.actionsSection}>
-           {isGroup && (
-             <TouchableOpacity style={styles.dangerButton} onPress={handleLeaveGroup} disabled={!!loadingAction}>
-               <Feather name="log-out" size={20} color="#ef4444" />
-               <Text style={styles.dangerButtonText}>Leave Group</Text>
-             </TouchableOpacity>
-           )}
-           {/* Additional actions like Block/Report could go here for 1-on-1 chats */}
-        </View>
+              <View style={styles.mediaSectionHeader}>
+                <Text style={styles.sectionTitle}>Shared Media & Links</Text>
+              </View>
+            </>
+          }
+          data={sharedMedia}
+          keyExtractor={(item) => item._id}
+          numColumns={3}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => {
+            const urlRegex = /https?:\/\/[^\s$.?#].[^\s]*/gi;
+            const linkMatch = item.text?.match(urlRegex);
+            const isLinkOnly = !item.mediaUrl && linkMatch;
+
+            if (isLinkOnly) {
+              const url = linkMatch[0];
+              let hostname = url;
+              try { hostname = new URL(url).hostname; } catch (e) {}
+              return (
+                <TouchableOpacity 
+                  style={styles.linkItem} 
+                  onPress={() => Linking.openURL(url)}
+                >
+                  <Feather name="link" size={24} color="#3b82f6" style={{ marginBottom: 4 }} />
+                  <Text style={styles.linkText} numberOfLines={1}>{hostname}</Text>
+                </TouchableOpacity>
+              );
+            }
+
+            return (
+              <TouchableOpacity
+                style={styles.mediaItem}
+                activeOpacity={0.8}
+                onPress={() => {
+                  if (item.mediaUrl) {
+                    setViewingMedia({
+                      url: item.mediaUrl,
+                      type: item.mediaType === 'video' ? 'video' : 'image',
+                    });
+                  }
+                }}
+              >
+                {item.mediaType === 'video' ? (
+                  <View style={styles.videoPlaceholder}>
+                    <Feather name="video" size={24} color="#71717a" />
+                  </View>
+                ) : (
+                  <Image source={{ uri: item.mediaUrl }} style={styles.mediaImage} />
+                )}
+                {item.mediaType === 'gif' && (
+                  <View style={styles.gifBadge}>
+                    <Text style={styles.gifBadgeText}>GIF</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          }}
+          ListFooterComponent={
+            <>
+              {loadingMedia && <ActivityIndicator style={{ marginTop: 20 }} color="#71717a" />}
+              {!loadingMedia && sharedMedia.length === 0 && (
+                <View style={styles.emptyMediaContainer}>
+                  <Feather name="image" size={32} color="#3f3f46" />
+                  <Text style={styles.emptyMediaText}>No media or links shared yet</Text>
+                </View>
+              )}
+              <View style={styles.actionsSection}>
+                 {isGroup ? (
+                   <TouchableOpacity style={styles.dangerButton} onPress={handleLeaveGroup} disabled={!!loadingAction}>
+                     <Feather name="log-out" size={20} color="#ef4444" />
+                     <Text style={styles.dangerButtonText}>Leave Group</Text>
+                   </TouchableOpacity>
+                 ) : (
+                   <TouchableOpacity style={styles.dangerButton} onPress={() => {
+                      Alert.alert(
+                        "Remove Chat",
+                        "Are you sure you want to remove this chat?",
+                        [
+                          { text: "Cancel", style: "cancel" },
+                          { text: "Remove", style: "destructive", onPress: async () => {
+                              setLoadingAction("remove");
+                              try {
+                                await chatApi.deleteChat(chat._id);
+                                onClose();
+                                router.replace('/tabs');
+                              } catch (err) {
+                                Alert.alert("Error", "Failed to remove chat.");
+                              } finally {
+                                setLoadingAction(null);
+                              }
+                          }}
+                        ]
+                      );
+                   }} disabled={!!loadingAction}>
+                     <Feather name="trash-2" size={20} color="#ef4444" />
+                     <Text style={styles.dangerButtonText}>Remove Chat</Text>
+                   </TouchableOpacity>
+                 )}
+              </View>
+            </>
+          }
+        />
       </SafeAreaView>
+      {viewingMedia && (
+        <MediaViewer
+          visible={!!viewingMedia}
+          onClose={() => setViewingMedia(null)}
+          mediaUrl={viewingMedia.url}
+          mediaType={viewingMedia.type}
+        />
+      )}
     </Modal>
   );
 };
@@ -317,14 +444,89 @@ const styles = StyleSheet.create({
   dangerButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
     padding: 16,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   dangerButtonText: {
     color: '#ef4444',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 12,
+  },
+  mediaSectionHeader: {
+    paddingTop: 16,
+    paddingHorizontal: 16,
+  },
+  emptyMediaContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    backgroundColor: '#18181b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#27272a',
+    borderStyle: 'dashed',
+    marginTop: 8,
+  },
+  emptyMediaText: {
+    color: '#71717a',
+    fontSize: 13,
+    marginTop: 8,
+  },
+  mediaItem: {
+    flex: 1,
+    aspectRatio: 1,
+    margin: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+  },
+  mediaImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  videoPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#18181b',
+  },
+  gifBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  gifBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  linkItem: {
+    flex: 1,
+    aspectRatio: 1,
+    margin: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+  },
+  linkText: {
+    color: '#3b82f6',
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 4,
   },
 });

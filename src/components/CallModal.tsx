@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, Image, SafeAreaView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Image, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 
 interface CallModalProps {

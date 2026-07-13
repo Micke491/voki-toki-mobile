@@ -1,4 +1,6 @@
-import { apiClient } from '../../api/client';
+import { apiClient, API_BASE_URL } from '../../api/client';
+import { Platform } from 'react-native';
+import { getToken } from '../../utils/storage';
 import { ChatDetails, ChatListItem, Message, MessagesResponse, SearchUser } from './types';
 
 export const chatApi = {
@@ -51,9 +53,14 @@ export const chatApi = {
     mediaUrl?: string;
     mediaType?: string;
     mediaPublicId?: string;
+    isForwarded?: boolean;
   }): Promise<{ message: Message }> => {
     const response = await apiClient.post('/chat/message', payload);
     return response.data;
+  },
+
+  sendTypingStatus: async (chatId: string, username: string, isTyping: boolean): Promise<void> => {
+    await apiClient.post('/chat/typing', { chatId, username, isTyping });
   },
 
   markMessagesSeen: async (chatId: string, messageIds: string[]): Promise<void> => {
@@ -65,6 +72,15 @@ export const chatApi = {
     });
   },
 
+  markMessagesDelivered: async (chatId: string, messageIds: string[]): Promise<void> => {
+    if (messageIds.length === 0) return;
+    await apiClient.post(`/chat/message/messages/${messageIds[0]}/status`, {
+      chatId,
+      messageIds,
+      status: 'delivered',
+    });
+  },
+
   uploadChatMedia: async (
     fileUri: string,
     fileName: string,
@@ -72,22 +88,33 @@ export const chatApi = {
     onProgress?: (percent: number) => void
   ): Promise<{ url: string; mediaType: string; publicId: string }> => {
     const formData = new FormData();
-    // @ts-ignore - React Native FormData file shape
+    
+    let localUri = fileUri;
+    if (Platform.OS === 'android' && !localUri.startsWith('file://') && !localUri.startsWith('content://')) {
+       localUri = 'file://' + localUri;
+    }
+
     formData.append('file', {
-      uri: fileUri,
+      uri: localUri,
       name: fileName,
       type: mimeType,
-    });
+    } as any);
 
-    const response = await apiClient.post('/chat/media/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: (evt) => {
-        if (onProgress && evt.total) {
-          onProgress(Math.round((evt.loaded * 100) / evt.total));
-        }
+    const token = await getToken();
+    
+    const response = await fetch(`${API_BASE_URL}/chat/media/upload`, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'Authorization': `Bearer ${token}`,
       },
     });
-    return response.data;
+
+    if (!response.ok) {
+      throw new Error('Upload failed');
+    }
+    const data = await response.json();
+    return data;
   },
 
   listMedia: async (chatId: string): Promise<any[]> => {
@@ -95,7 +122,6 @@ export const chatApi = {
     return response.data;
   },
 
-  // Advanced Web Parity APIs
   getPinnedChats: async (): Promise<{ pinnedChats: string[] }> => {
     const response = await apiClient.get('/chats/pinned');
     return response.data;
@@ -136,35 +162,39 @@ export const chatApi = {
   },
 
   addReaction: async (messageId: string, emoji: string): Promise<void> => {
-    await apiClient.post(`/chat/message/${messageId}/reaction`, { emoji });
+    await apiClient.post(`/chat/message/messages/${messageId}/reaction`, { emoji });
   },
 
   removeReaction: async (messageId: string, emoji: string): Promise<void> => {
-    await apiClient.delete(`/chat/message/${messageId}/reaction`, { data: { emoji } });
+    await apiClient.delete(`/chat/message/messages/${messageId}/reaction`, { data: { emoji } });
   },
 
   deleteMessage: async (messageId: string, forEveryone: boolean = false): Promise<void> => {
-    await apiClient.delete(`/chat/message/${messageId}?forEveryone=${forEveryone}`);
+    await apiClient.delete(`/chat/message/messages/${messageId}/delete?forEveryone=${forEveryone}`);
   },
 
   deleteMessageForEveryone: async (messageId: string): Promise<void> => {
-    await apiClient.delete(`/chat/message/${messageId}?forEveryone=true`);
+    await apiClient.delete(`/chat/message/messages/${messageId}/delete?forEveryone=true`);
   },
 
   editMessage: async (messageId: string, text: string): Promise<{ message: Message }> => {
-    const response = await apiClient.put(`/chat/message/${messageId}`, { text });
+    const response = await apiClient.patch(`/chat/message/messages/${messageId}/edit`, { text });
     return response.data;
   },
 
-  pinMessage: async (messageId: string): Promise<void> => {
-    await apiClient.post(`/chat/message/${messageId}/pin`);
+  pinMessage: async (chatId: string, messageId: string): Promise<void> => {
+    await apiClient.post(`/chat/${chatId}/pinned`, { messageId });
+  },
+  
+  unpinMessage: async (chatId: string, messageId: string): Promise<void> => {
+    await apiClient.delete(`/chat/${chatId}/pinned?messageId=${messageId}`);
   },
 
-  unpinMessage: async (messageId: string): Promise<void> => {
-    await apiClient.post(`/chat/message/${messageId}/unpin`);
+  getPinnedMessages: async (chatId: string): Promise<Message[]> => {
+    const response = await apiClient.get(`/chat/${chatId}/pinned`);
+    return response.data;
   },
 
-  // Block & Report APIs
   blockUser: async (targetUserId: string): Promise<void> => {
     await apiClient.post('/users/block', { targetUserId });
   },
@@ -205,8 +235,10 @@ export const chatApi = {
     await apiClient.post(`/chat/${chatId}/leave`);
   },
 
-  createGroupChat: async (name: string, participantIds: string[]): Promise<ChatListItem> => {
-    const response = await apiClient.post('/chats/group', { name, participants: participantIds });
+  createGroupChat: async (name: string, participantIds: string[], avatar?: string): Promise<ChatListItem> => {
+    const payload: any = { name, participants: participantIds };
+    if (avatar) payload.avatar = avatar;
+    const response = await apiClient.post('/chats/GroupChat', payload);
     return response.data;
   },
 };

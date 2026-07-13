@@ -46,6 +46,7 @@ export class RealtimeClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnecting = false;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private pendingMessages: any[] = [];
 
   async connect() {
     if (this.isConnecting) return;
@@ -76,6 +77,12 @@ export class RealtimeClient {
         Object.keys(this.channels).forEach(channelName => {
           this.send({ action: 'subscribe', channel: channelName });
         });
+
+        // Flush pending messages
+        while (this.pendingMessages.length > 0) {
+          const msg = this.pendingMessages.shift();
+          this.ws.send(JSON.stringify(msg));
+        }
       };
 
       this.ws.onmessage = (event: MessageEvent) => {
@@ -138,6 +145,9 @@ export class RealtimeClient {
   send(data: any) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
+    } else {
+      this.pendingMessages.push(data);
+      this.connect();
     }
   }
 
@@ -146,11 +156,7 @@ export class RealtimeClient {
       this.channels[channelName] = new Channel(channelName, this);
     }
 
-    // Ensure we're connected
-    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-      this.connect();
-    }
-
+    // `send` will queue if not connected, and trigger `connect()`
     this.send({ action: 'subscribe', channel: channelName });
 
     return this.channels[channelName];
@@ -178,6 +184,7 @@ export class RealtimeClient {
       this.ws = null;
     }
     this.channels = {};
+    this.pendingMessages = [];
   }
 }
 

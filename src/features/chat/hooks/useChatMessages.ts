@@ -1,4 +1,6 @@
 import { useEffect, useState, useRef, useCallback, SetStateAction } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../api';
 import { Message } from '../types';
@@ -28,6 +30,38 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unreadCountBelow, setUnreadCountBelow] = useState(0);
+  const [showNewMessageBadge, setShowNewMessageBadge] = useState(false);
+  const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]); 
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
+
+  const offlineQueueRef = useRef<any[]>([]);
+
+  const loadOfflineQueue = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(`offline-queue-${chatId}`);
+      if (stored) {
+        offlineQueueRef.current = JSON.parse(stored);
+      }
+    } catch (e) {
+      console.error('Failed to load offline queue', e);
+    }
+  }, [chatId]);
+
+  const updateOfflineStorage = useCallback(async (queue: any[]) => {
+    try {
+      await AsyncStorage.setItem(`offline-queue-${chatId}`, JSON.stringify(queue));
+    } catch (e) {
+      console.error('Failed to save offline queue', e);
+    }
+  }, [chatId]);
+
+  useEffect(() => {
+    loadOfflineQueue();
+  }, [loadOfflineQueue]);
+
+  const isNearBottomRef = useRef(true);
 
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
@@ -42,7 +76,6 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
   const deleteMessageForEveryone = useCallback(async (messageId: string) => {
     try {
       await chatApi.deleteMessageForEveryone(messageId);
-      // Event listener will handle the update
     } catch (error) {
       console.error('Error deleting message for everyone:', error);
     }
@@ -58,7 +91,7 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     
     try {
       const promises = targetChatIds.map(id =>
-        chatApi.sendMessage({ chatId: id, senderId: currentUserId, text: messageText, mediaUrl, mediaType })
+        chatApi.sendMessage({ chatId: id, senderId: currentUserId, text: messageText, mediaUrl, mediaType, isForwarded: true })
       );
       await Promise.all(promises);
     } catch (error) {
@@ -69,9 +102,23 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
 
   const fetchMessages = useCallback(async (before?: string) => {
     try {
+      const netState = await NetInfo.fetch();
+      const isOnline = netState.isConnected && netState.isInternetReachable !== false;
+      if (!isOnline) {
+        setLoading(false);
+        return;
+      }
       if (!before) {
         setLoading(true);
         setMessages([]);
+
+        chatApi.getPinnedMessages(chatId)
+          .then((data) => {
+            setPinnedMessages(data || []);
+          })
+          .catch((err) => {
+            console.error('Failed to fetch pinned messages', err);
+          });
       } else {
         setLoadingMore(true);
       }
@@ -83,6 +130,17 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         setMessages(prev => dedupeMessages([...newMessages, ...prev]));
       } else {
         setMessages(newMessages);
+
+        const firstUnread = newMessages.find(
+          (m: Message) =>
+            m.sender?._id !== currentUserId &&
+            !m.readBy?.some((r: any) => r.userId === currentUserId)
+        );
+        if (firstUnread) {
+          setFirstUnreadId(firstUnread._id);
+        } else {
+          setFirstUnreadId(null);
+        }
       }
       setHasMore(data.hasMore);
       setError(null);
@@ -92,7 +150,7 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [chatId, setMessages]);
+  }, [chatId, currentUserId, setMessages]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore || messages.length === 0) return;
@@ -128,6 +186,19 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     }
   }, [chatId, currentUserId, setMessages]);
 
+  const updateScrollPosition = useCallback((nearBottom: boolean) => {
+    isNearBottomRef.current = nearBottom;
+    setShowNewMessageBadge(!nearBottom);
+    if (nearBottom) {
+      setUnreadCountBelow(0);
+    }
+  }, []);
+
+  const resetUnreadBelow = useCallback(() => {
+    setUnreadCountBelow(0);
+    setShowNewMessageBadge(false);
+  }, []);
+
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
@@ -145,11 +216,13 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     const onReceiveMessage = (message: Message) => {
       if (String(message.chatId) !== String(chatId)) return;
 
+      const senderId = typeof message.sender === 'object' ? message.sender?._id : message.sender;
+      const isOwnMessage = senderId === currentUserId;
+
       setMessages(prev => {
         if (prev.some(m => String(m._id) === String(message._id))) return prev;
 
-        const senderId = typeof message.sender === 'object' ? message.sender?._id : message.sender;
-        if (senderId === currentUserId) {
+        if (isOwnMessage) {
           const tempIndex = prev.findIndex(m =>
             (m._id.startsWith('temp-') || m.status === 'sending' || m.status === 'failed') &&
             m.text === message.text
@@ -164,7 +237,11 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         return [...prev, message];
       });
 
-      if (message.sender?._id !== currentUserId) {
+      if (!isOwnMessage) {
+        if (!isNearBottomRef.current) {
+          setUnreadCountBelow(prev => prev + 1);
+          setShowNewMessageBadge(true);
+        }
         chatApi.markMessagesSeen(chatId, [message._id]).catch(() => {});
       }
     };
@@ -202,16 +279,74 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       );
     };
 
+    const onMessagesDelivered = (data: { messageIds: string[]; userId: string }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          data.messageIds.includes(m._id) && m.status !== 'seen'
+            ? {
+                ...m,
+                status: 'delivered',
+              }
+            : m
+        )
+      );
+    };
+
+    const onMessagePinned = (pinnedMessage: Message) => {
+      setPinnedMessages([pinnedMessage]);
+      setMessages(prev =>
+        prev.map(m =>
+          String(m._id) === String(pinnedMessage._id)
+            ? { ...m, isPinned: true }
+            : { ...m, isPinned: false }
+        )
+      );
+    };
+
+    const onMessageUnpinned = (data: { messageId: string }) => {
+      setPinnedMessages(prev => prev.filter(m => String(m._id) !== String(data.messageId)));
+      setMessages(prev =>
+        prev.map(m =>
+          String(m._id) === String(data.messageId)
+            ? { ...m, isPinned: false }
+            : m
+        )
+      );
+    };
+
+    const onUserTyping = (data: { username: string; userId: string }) => {
+      if (String(data.userId) !== String(currentUserId)) {
+        setTypingUsers((prev) => {
+          if (prev.includes(data.username)) return prev;
+          return [...prev, data.username];
+        });
+      }
+    };
+
+    const onUserStoppedTyping = (data: { username: string; userId: string }) => {
+      setTypingUsers((prev) => prev.filter((u) => u !== data.username));
+    };
+
     channel.bind('receive-message', onReceiveMessage);
     channel.bind('message-updated', onMessageUpdated);
     channel.bind('message-deleted', onMessageDeleted);
     channel.bind('messages-read', onMessagesRead);
+    channel.bind('messages-delivered', onMessagesDelivered);
+    channel.bind('message-pinned', onMessagePinned);
+    channel.bind('message-unpinned', onMessageUnpinned);
+    channel.bind('user-typing', onUserTyping);
+    channel.bind('user-stopped-typing', onUserStoppedTyping);
 
     return () => {
       channel.unbind('receive-message', onReceiveMessage);
       channel.unbind('message-updated', onMessageUpdated);
       channel.unbind('message-deleted', onMessageDeleted);
       channel.unbind('messages-read', onMessagesRead);
+      channel.unbind('messages-delivered', onMessagesDelivered);
+      channel.unbind('message-pinned', onMessagePinned);
+      channel.unbind('message-unpinned', onMessageUnpinned);
+      channel.unbind('user-typing', onUserTyping);
+      channel.unbind('user-stopped-typing', onUserStoppedTyping);
     };
   }, [chatId, currentUserId, setMessages]);
 
@@ -232,6 +367,15 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
 
     setMessages(prev => [...prev, optimistic]);
 
+    const netState = await NetInfo.fetch();
+    const isOnline = netState.isConnected && netState.isInternetReachable !== false;
+
+    if (!isOnline) {
+      offlineQueueRef.current.push({ tempId, text: trimmed });
+      updateOfflineStorage(offlineQueueRef.current);
+      return;
+    }
+
     try {
       const { message } = await chatApi.sendMessage({
         chatId,
@@ -240,25 +384,37 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
     } catch {
+      offlineQueueRef.current.push({ tempId, text: trimmed });
+      updateOfflineStorage(offlineQueueRef.current);
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...m, status: 'failed' } : m)));
     }
-  }, [chatId, currentUserId, setMessages]);
+  }, [chatId, currentUserId, setMessages, updateOfflineStorage]);
 
   const retryMessage = useCallback(async (message: Message) => {
-    if (!message.text) return;
+    if (!message.text && !message.mediaUrl) return;
+
+    const netState = await NetInfo.fetch();
+    const isOnline = netState.isConnected && netState.isInternetReachable !== false;
+    if (!isOnline) return;
+
     setMessages(prev => prev.map(m => (m._id === message._id ? { ...m, status: 'sending' } : m)));
 
     try {
-      const { message: realMessage } = await chatApi.sendMessage({
-        chatId,
-        senderId: currentUserId,
-        text: message.text,
-      });
-      setMessages(prev => prev.map(m => (m._id === message._id ? { ...realMessage, status: 'sent' } : m)));
+      if (message.text && !message.mediaUrl) {
+        const { message: realMessage } = await chatApi.sendMessage({
+          chatId,
+          senderId: currentUserId,
+          text: message.text,
+        });
+        setMessages(prev => prev.map(m => (m._id === message._id ? { ...realMessage, status: 'sent' } : m)));
+      }
+      
+      offlineQueueRef.current = offlineQueueRef.current.filter(i => i.tempId !== message._id);
+      updateOfflineStorage(offlineQueueRef.current);
     } catch {
       setMessages(prev => prev.map(m => (m._id === message._id ? { ...m, status: 'failed' } : m)));
     }
-  }, [chatId, currentUserId, setMessages]);
+  }, [chatId, currentUserId, setMessages, updateOfflineStorage]);
 
   const sendMediaMessage = useCallback(async (
     media: { uri: string; fileName: string; mimeType: string; type: 'image' | 'video' | 'audio' | 'gif' | 'sticker' | 'call' },
@@ -280,8 +436,16 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
 
     setMessages(prev => [...prev, optimistic]);
 
+    const netState = await NetInfo.fetch();
+    const isOnline = netState.isConnected && netState.isInternetReachable !== false;
+
+    if (!isOnline) {
+      offlineQueueRef.current.push({ tempId, text: caption, mediaUrl: media.uri, mediaType: media.type, mimeType: media.mimeType, fileName: media.fileName });
+      updateOfflineStorage(offlineQueueRef.current);
+      return;
+    }
+
     try {
-      // For GIFs/stickers with external URLs, skip upload and send directly
       const isExternalUrl = media.uri.startsWith('http://') || media.uri.startsWith('https://');
       const isGifOrSticker = media.type === 'gif' || media.type === 'sticker';
 
@@ -305,14 +469,47 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         senderId: currentUserId,
         text: caption || '',
         mediaUrl,
-        mediaType,
+        mediaType: media.type === 'audio' ? 'audio' : mediaType,
         mediaPublicId,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
     } catch {
+      offlineQueueRef.current.push({ tempId, text: caption, mediaUrl: media.uri, mediaType: media.type, mimeType: media.mimeType, fileName: media.fileName });
+      updateOfflineStorage(offlineQueueRef.current);
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...m, status: 'failed' } : m)));
     }
-  }, [chatId, currentUserId, setMessages]);
+  }, [chatId, currentUserId, setMessages, updateOfflineStorage]);
+
+  const retryOfflineQueue = useCallback(async () => {
+    if (offlineQueueRef.current.length === 0) return;
+    const queue = [...offlineQueueRef.current];
+    
+    for (const item of queue) {
+      if (item.text && !item.mediaUrl) {
+        try {
+          const { message } = await chatApi.sendMessage({
+            chatId,
+            senderId: currentUserId,
+            text: item.text,
+          });
+          setMessages(prev => prev.map(m => (m._id === item.tempId ? { ...message, status: 'sent' } : m)));
+          offlineQueueRef.current = offlineQueueRef.current.filter(i => i.tempId !== item.tempId);
+          await updateOfflineStorage(offlineQueueRef.current);
+        } catch {}
+      }
+    }
+  }, [chatId, currentUserId, setMessages, updateOfflineStorage]);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const isOnline = state.isConnected && state.isInternetReachable !== false;
+      if (isOnline) {
+        retryOfflineQueue();
+        fetchMessages();
+      }
+    });
+    return () => unsubscribe();
+  }, [retryOfflineQueue, fetchMessages]);
 
   return {
     messages,
@@ -326,5 +523,12 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     sendMediaMessage,
     deleteMessageForEveryone,
     forwardMessage,
+    unreadCountBelow,
+    showNewMessageBadge,
+    firstUnreadId,
+    updateScrollPosition,
+    resetUnreadBelow,
+    pinnedMessages, 
+    typingUsers,
   };
 }

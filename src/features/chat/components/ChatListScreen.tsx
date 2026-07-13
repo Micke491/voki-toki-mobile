@@ -104,6 +104,7 @@ export const ChatListScreen = () => {
     reportData,
     setReportData,
     blocking,
+    handleLeaveGroup
   } = useChatList(user?._id);
 
   const displayChats = activeTab === 'chats' ? filteredChats : requests;
@@ -390,10 +391,29 @@ export const ChatListScreen = () => {
 
                   <View style={styles.menuDivider} />
 
-                  <TouchableOpacity style={styles.menuItem} onPress={() => { handleRemoveChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
-                    <Feather name="trash-2" size={20} color="#ef4444" />
-                    <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Remove Chat</Text>
-                  </TouchableOpacity>
+                  {selectedChatForMenu.isGroupChat ? (
+                    <TouchableOpacity 
+                      style={styles.menuItem} 
+                      onPress={() => { 
+                        handleLeaveGroup(selectedChatForMenu._id); 
+                        setSelectedChatForMenu(null); 
+                      }}
+                    >
+                      <Feather name="log-out" size={20} color="#ef4444" />
+                      <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Leave Group</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity 
+                      style={styles.menuItem} 
+                      onPress={() => { 
+                        handleRemoveChat(selectedChatForMenu._id); 
+                        setSelectedChatForMenu(null); 
+                      }}
+                    >
+                      <Feather name="trash-2" size={20} color="#ef4444" />
+                      <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Remove Chat</Text>
+                    </TouchableOpacity>
+                  )}
 
                 </View>
               </TouchableWithoutFeedback>

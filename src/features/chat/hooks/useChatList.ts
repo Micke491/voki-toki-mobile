@@ -3,7 +3,7 @@ import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../api';
 import { ChatListItem, ChatParticipant } from '../types';
 
-export function useChatList(currentUserId: string | undefined) {
+export function useChatList(currentUserId: string | undefined, selectedChatId?: string) {
   const [chats, setChats] = useState<ChatListItem[]>([]);
   const [requests, setRequests] = useState<ChatListItem[]>([]);
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
@@ -22,6 +22,11 @@ export function useChatList(currentUserId: string | undefined) {
     currentUserIdRef.current = currentUserId;
   }, [currentUserId]);
 
+  const selectedChatIdRef = useRef(selectedChatId);
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+  }, [selectedChatId]);
+
   const fetchChats = useCallback(async () => {
     try {
       setLoading(true);
@@ -31,7 +36,12 @@ export function useChatList(currentUserId: string | undefined) {
         chatApi.getPinnedChats().catch(() => ({ pinnedChats: [] })),
         chatApi.getMutedChats().catch(() => ({ mutedChats: [] }))
       ]);
-      setChats(chatsData);
+      
+      const processedData = chatsData.map((c: ChatListItem) => 
+        c._id === selectedChatIdRef.current ? { ...c, unreadCount: 0 } : c
+      );
+      
+      setChats(processedData);
       setRequests(requestsData);
       setPinnedChatIds(pinnedData.pinnedChats || []);
       setMutedChatIds(mutedData.mutedChats ? mutedData.mutedChats.map((m: any) => m.chatId) : []);
@@ -46,15 +56,11 @@ export function useChatList(currentUserId: string | undefined) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const data = await chatApi.getChats();
-      setChats(data);
-      setError(null);
-    } catch (err) {
-      // silent
+      await fetchChats();
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchChats]);
 
   // Initial fetch
   useEffect(() => {
@@ -86,12 +92,13 @@ export function useChatList(currentUserId: string | undefined) {
         }
 
         const existingChat = prevChats[existingChatIndex];
+        const isCurrentChat = data.chatId === selectedChatIdRef.current;
         const amISender = data.lastMessage?.sender?._id === currentUserIdRef.current
           || data.lastMessage?.sender === currentUserIdRef.current;
 
         let newUnreadCount = existingChat.unreadCount || 0;
 
-        if (amISender) {
+        if (isCurrentChat || amISender) {
           newUnreadCount = 0;
         } else if (data.unreadCount !== undefined) {
           newUnreadCount = data.unreadCount;
@@ -124,6 +131,10 @@ export function useChatList(currentUserId: string | undefined) {
 
         const shouldMoveToTop = !existingChat.lastMessage ||
           (data.lastMessage && new Date(data.lastMessage.createdAt) > new Date(existingChat.lastMessage.createdAt));
+
+        if (!amISender && data.lastMessage?._id && !isCurrentChat) {
+          chatApi.markMessagesDelivered(data.chatId, [data.lastMessage._id]).catch(err => console.error('Error marking delivered:', err));
+        }
 
         if (shouldMoveToTop) {
           return [updatedChat, ...otherChats];

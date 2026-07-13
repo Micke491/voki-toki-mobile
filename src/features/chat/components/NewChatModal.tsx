@@ -10,11 +10,13 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useNewChat } from '../hooks/useNewChat';
 import { ListItem, SearchUser } from '../types';
 import { chatApi } from '../api';
+import { useMediaPicker } from '../hooks/useMediaPicker';
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
@@ -55,6 +57,8 @@ export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = 
   const [groupName, setGroupName] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupAvatar, setGroupAvatar] = useState<{uri: string, file: any} | null>(null);
+  const { pickFromLibrary, picking } = useMediaPicker();
 
   const handleToggleUser = (userId: string) => {
     setSelectedUsers(prev => 
@@ -62,11 +66,23 @@ export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = 
     );
   };
 
+  const handlePickAvatar = async () => {
+    const media = await pickFromLibrary();
+    if (media && media.type === 'image') {
+      setGroupAvatar({ uri: media.uri, file: media });
+    }
+  };
+
   const handleCreateGroup = async () => {
     if (!groupName.trim() || selectedUsers.length === 0) return;
     try {
       setCreatingGroup(true);
-      const chat = await chatApi.createGroupChat(groupName.trim(), selectedUsers);
+      let avatarUrl = undefined;
+      if (groupAvatar) {
+        const uploadRes = await chatApi.uploadChatMedia(groupAvatar.file.uri, groupAvatar.file.fileName, groupAvatar.file.mimeType);
+        avatarUrl = uploadRes.url;
+      }
+      const chat = await chatApi.createGroupChat(groupName.trim(), selectedUsers, avatarUrl);
       onClose();
       onChatCreated(chat._id);
     } catch (err) {
@@ -227,6 +243,17 @@ export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = 
           </>
         ) : (
           <View style={styles.groupContainer}>
+            <View style={styles.avatarPickerContainer}>
+              <TouchableOpacity style={styles.avatarPicker} onPress={handlePickAvatar} disabled={picking}>
+                {groupAvatar ? (
+                  <Image source={{ uri: groupAvatar.uri }} style={styles.avatarImage} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    {picking ? <ActivityIndicator color="#a1a1aa" /> : <Feather name="camera" size={24} color="#a1a1aa" />}
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
             <View style={styles.groupInputContainer}>
                <TextInput
                  style={styles.groupNameInput}
@@ -476,9 +503,33 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   groupInputContainer: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#27272a',
+  },
+  avatarPickerContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  avatarPicker: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
   },
   groupNameInput: {
     backgroundColor: '#18181b',

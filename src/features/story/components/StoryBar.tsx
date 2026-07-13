@@ -10,7 +10,7 @@ import { AttachmentSheet } from '../../chat/components/AttachmentSheet';
 
 export const StoryBar = () => {
   const { user } = useAuthContext();
-  const { storyGroups, loading, fetchStories, markViewed } = useStories();
+  const { storyGroups, loading, fetchStories, markViewed } = useStories(user?._id);
   const { pickFromLibrary, pickFromCamera } = useMediaPicker();
   const { postStory, uploading } = useCreateStory(fetchStories);
   const [viewerGroupIndex, setViewerGroupIndex] = useState<number | null>(null);
