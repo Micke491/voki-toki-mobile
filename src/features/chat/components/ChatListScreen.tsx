@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   TouchableWithoutFeedback,
+  Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -77,6 +78,7 @@ export const ChatListScreen = () => {
   const [showNewChat, setShowNewChat] = useState(false);
   const [activeTab, setActiveTab] = useState<'chats' | 'requests'>('chats');
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
+  const [reportingGroup, setReportingGroup] = useState<{ groupId: string; groupName: string } | null>(null);
 
   const {
     chats,
@@ -122,6 +124,7 @@ export const ChatListScreen = () => {
     const chatName = item.isGroupChat ? (item.name || 'Group') : otherUser.username;
     const avatarLetter = chatName.charAt(0).toUpperCase();
     const avatarColor = getAvatarColor(item._id);
+    const avatarUrl = item.isGroupChat ? item.avatar : otherUser.avatar;
     const preview = getMessagePreview(item);
     const time = item.lastMessage?.createdAt ? formatTime(item.lastMessage.createdAt) : formatTime(item.updatedAt);
     const unread = item.unreadCount || 0;
@@ -137,8 +140,14 @@ export const ChatListScreen = () => {
         activeOpacity={0.6}
       >
         {/* Avatar */}
-        <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-          <Text style={styles.avatarText}>{avatarLetter}</Text>
+        <View style={styles.avatarWrap}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor }]}>
+              <Text style={styles.avatarText}>{avatarLetter}</Text>
+            </View>
+          )}
           {item.isGroupChat && (
             <View style={styles.groupBadge}>
               <Feather name="users" size={8} color="#fff" />
@@ -375,9 +384,9 @@ export const ChatListScreen = () => {
                         <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Block User</Text>
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={styles.menuItem} onPress={() => { 
+                      <TouchableOpacity style={styles.menuItem} onPress={() => {
                         const otherUser = getOtherParticipant(selectedChatForMenu);
-                        setSelectedChatForMenu(null); 
+                        setSelectedChatForMenu(null);
                         setReportData({
                           userId: otherUser._id,
                           username: otherUser.username
@@ -385,6 +394,22 @@ export const ChatListScreen = () => {
                       }}>
                         <Feather name="alert-triangle" size={20} color="#f59e0b" />
                         <Text style={[styles.menuItemText, { color: '#f59e0b' }]}>Report User</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+
+                  {selectedChatForMenu.isGroupChat && (
+                    <>
+                      <View style={styles.menuDivider} />
+                      <TouchableOpacity style={styles.menuItem} onPress={() => {
+                        setReportingGroup({
+                          groupId: selectedChatForMenu._id,
+                          groupName: selectedChatForMenu.name || 'Group'
+                        });
+                        setSelectedChatForMenu(null);
+                      }}>
+                        <Feather name="alert-triangle" size={20} color="#f59e0b" />
+                        <Text style={[styles.menuItemText, { color: '#f59e0b' }]}>Report Group</Text>
                       </TouchableOpacity>
                     </>
                   )}
@@ -445,6 +470,15 @@ export const ChatListScreen = () => {
         targetId={reportData?.userId || ''}
         targetType="user"
         targetName={reportData?.username}
+      />
+
+      {/* Report Group Modal */}
+      <ReportModal
+        isOpen={!!reportingGroup}
+        onClose={() => setReportingGroup(null)}
+        targetId={reportingGroup?.groupId || ''}
+        targetType="group"
+        targetName={reportingGroup?.groupName}
       />
     </View>
   );
@@ -555,13 +589,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  avatarWrap: {
+    marginRight: 14,
+  },
   avatar: {
     width: 52,
     height: 52,
     borderRadius: 26,
+  },
+  avatarFallback: {
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
   },
   avatarText: {
     color: '#fff',

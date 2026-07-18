@@ -7,13 +7,15 @@ import { ChatDetails } from '../types';
 import { getAvatarColor } from '../utils/format';
 import { chatApi } from '../api';
 import { MediaViewer } from '../../../components/MediaViewer';
+import { ReportModal } from '../../../components/ReportModal';
+import { useMediaPicker } from '../hooks/useMediaPicker';
 
 interface ChatSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   chat: ChatDetails;
   currentUserId: string;
-  onUpdateChat?: () => void;
+  onUpdateChat?: (chat?: ChatDetails) => void;
 }
 
 export const ChatSidebar = ({
@@ -27,11 +29,16 @@ export const ChatSidebar = ({
   const [sharedMedia, setSharedMedia] = useState<any[]>([]);
   const [loadingMedia, setLoadingMedia] = useState(false);
   const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [reportingGroup, setReportingGroup] = useState(false);
   const router = useRouter();
+  const { pickFromLibrary } = useMediaPicker();
 
   const isAdmin = chat.groupAdmin === currentUserId;
   const isGroup = chat.isGroupChat;
-  
+  const otherParticipant = chat.participants.find(p => p._id !== currentUserId);
+  const mainAvatarUrl = isGroup ? chat.avatar : otherParticipant?.avatar;
+
   useEffect(() => {
     if (isOpen) {
       const fetchMedia = async () => {
@@ -61,8 +68,8 @@ export const ChatSidebar = ({
           onPress: async () => {
             setLoadingAction(`remove_${userId}`);
             try {
-              await chatApi.removeParticipant(chat._id, userId);
-              onUpdateChat?.();
+              const updated = await chatApi.removeParticipant(chat._id, userId);
+              onUpdateChat?.(updated);
             } catch (err) {
               Alert.alert("Error", "Failed to remove participant.");
             } finally {
@@ -85,8 +92,8 @@ export const ChatSidebar = ({
           onPress: async () => {
             setLoadingAction(`admin_${userId}`);
             try {
-              await chatApi.changeAdmin(chat._id, userId);
-              onUpdateChat?.();
+              const updated = await chatApi.changeAdmin(chat._id, userId);
+              onUpdateChat?.(updated);
             } catch (err) {
               Alert.alert("Error", "Failed to change admin.");
             } finally {
@@ -124,13 +131,66 @@ export const ChatSidebar = ({
     );
   };
 
+  const handleChangeAvatar = async () => {
+    const media = await pickFromLibrary();
+    if (!media) return;
+    if (media.type !== 'image') {
+      Alert.alert('Unsupported', 'Please choose an image for the group photo.');
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const uploaded = await chatApi.uploadChatMedia(
+        media.uri,
+        media.fileName || `group_${Date.now()}.jpg`,
+        media.mimeType || 'image/jpeg'
+      );
+      const updated = await chatApi.updateGroupInfo(chat._id, { avatar: uploaded.url });
+      onUpdateChat?.(updated);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to update group photo.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    Alert.alert(
+      'Remove Group Photo',
+      'Are you sure you want to remove the group photo?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setUploadingAvatar(true);
+            try {
+              const updated = await chatApi.updateGroupInfo(chat._id, { avatar: '' });
+              onUpdateChat?.(updated);
+            } catch (err) {
+              Alert.alert('Error', 'Failed to remove group photo.');
+            } finally {
+              setUploadingAvatar(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderParticipant = ({ item }: { item: any }) => {
     const isMe = item._id === currentUserId;
     const isUserAdmin = chat.groupAdmin === item._id;
     
     return (
       <View style={styles.participantRow}>
-        <View style={styles.avatarContainer}>
+        <TouchableOpacity
+          style={styles.avatarContainer}
+          activeOpacity={item.avatar ? 0.8 : 1}
+          disabled={!item.avatar}
+          onPress={() => item.avatar && setViewingMedia({ url: item.avatar, type: 'image' })}
+        >
           {item.avatar ? (
             <Image source={{ uri: item.avatar }} style={styles.avatar} />
           ) : (
@@ -138,7 +198,7 @@ export const ChatSidebar = ({
               <Text style={styles.avatarText}>{item.username?.charAt(0).toUpperCase()}</Text>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
         <View style={styles.participantInfo}>
           <Text style={styles.participantName}>{isMe ? 'You' : item.username}</Text>
           {isUserAdmin && <Text style={styles.adminBadge}>Admin</Text>}
@@ -169,7 +229,7 @@ export const ChatSidebar = ({
 
   if (!isOpen) return null;
 
-  const displayName = isGroup ? chat.name || 'Group' : chat.participants.find(p => p._id !== currentUserId)?.username || 'Unknown';
+  const displayName = isGroup ? chat.name || 'Group' : otherParticipant?.username || 'Unknown';
 
   return (
     <Modal visible={isOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -187,9 +247,37 @@ export const ChatSidebar = ({
 
               <View style={styles.infoSection}>
                 <View style={styles.mainAvatarContainer}>
-                   <View style={[styles.mainAvatar, { backgroundColor: getAvatarColor(chat._id) }]}>
-                     <Text style={styles.mainAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
-                   </View>
+                  <TouchableOpacity
+                    activeOpacity={mainAvatarUrl ? 0.85 : 1}
+                    disabled={!mainAvatarUrl || uploadingAvatar}
+                    onPress={() => mainAvatarUrl && setViewingMedia({ url: mainAvatarUrl, type: 'image' })}
+                  >
+                     {mainAvatarUrl ? (
+                       <Image source={{ uri: mainAvatarUrl }} style={styles.mainAvatar} />
+                     ) : (
+                       <View style={[styles.mainAvatar, { backgroundColor: getAvatarColor(chat._id) }]}>
+                         <Text style={styles.mainAvatarText}>{displayName.charAt(0).toUpperCase()}</Text>
+                       </View>
+                     )}
+                     {uploadingAvatar && (
+                       <View style={styles.avatarUploadingOverlay}>
+                         <ActivityIndicator color="#fff" />
+                       </View>
+                     )}
+                  </TouchableOpacity>
+
+                  {isGroup && isAdmin && !uploadingAvatar && (
+                    <>
+                      <TouchableOpacity style={styles.avatarCameraBtn} onPress={handleChangeAvatar}>
+                        <Feather name="camera" size={16} color="#fff" />
+                      </TouchableOpacity>
+                      {mainAvatarUrl && (
+                        <TouchableOpacity style={styles.avatarRemoveBtn} onPress={handleRemoveAvatar}>
+                          <Feather name="trash-2" size={14} color="#fff" />
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  )}
                 </View>
                 <Text style={styles.titleText}>{displayName}</Text>
                 <Text style={styles.subtitleText}>{isGroup ? `${chat.participants.length} participants` : 'User'}</Text>
@@ -273,6 +361,15 @@ export const ChatSidebar = ({
                 </View>
               )}
               <View style={styles.actionsSection}>
+                 {isGroup && (
+                   <TouchableOpacity
+                     style={[styles.dangerButton, { borderColor: 'rgba(245, 158, 11, 0.3)', marginBottom: 12 }]}
+                     onPress={() => setReportingGroup(true)}
+                   >
+                     <Feather name="alert-triangle" size={20} color="#f59e0b" />
+                     <Text style={[styles.dangerButtonText, { color: '#f59e0b' }]}>Report Group</Text>
+                   </TouchableOpacity>
+                 )}
                  {isGroup ? (
                    <TouchableOpacity style={styles.dangerButton} onPress={handleLeaveGroup} disabled={!!loadingAction}>
                      <Feather name="log-out" size={20} color="#ef4444" />
@@ -317,6 +414,13 @@ export const ChatSidebar = ({
           mediaType={viewingMedia.type}
         />
       )}
+      <ReportModal
+        isOpen={reportingGroup}
+        onClose={() => setReportingGroup(false)}
+        targetId={chat._id}
+        targetType="group"
+        targetName={displayName}
+      />
     </Modal>
   );
 };
@@ -353,6 +457,7 @@ const styles = StyleSheet.create({
   },
   mainAvatarContainer: {
     marginBottom: 16,
+    position: 'relative',
   },
   mainAvatar: {
     width: 100,
@@ -360,6 +465,39 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  avatarUploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 50,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarCameraBtn: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#09090b',
+  },
+  avatarRemoveBtn: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#09090b',
   },
   mainAvatarText: {
     color: '#fff',

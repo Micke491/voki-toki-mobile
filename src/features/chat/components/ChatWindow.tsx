@@ -14,6 +14,7 @@ import {
   NativeScrollEvent,
   BackHandler,
   Animated,
+  Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -31,9 +32,39 @@ import { chatApi } from '../api';
 import { ForwardMessageModal } from '../../../components/ForwardMessageModal';
 import { useChatList } from '../hooks/useChatList';
 import { ChatSidebar } from './ChatSidebar';
-import { useCalls } from '../hooks/useCalls';
-import { CallModal } from '../../../components/CallModal';
+import { useCallContext } from '../../calls/CallContext';
 import { MediaViewer } from '../../../components/MediaViewer';
+import { ReportModal } from '../../../components/ReportModal';
+import EmojiPicker from 'rn-emoji-keyboard';
+
+const emojiPickerTheme = {
+  backdrop: 'rgba(0,0,0,0.6)',
+  knob: '#3f3f46',
+  container: '#18181b',
+  header: '#a1a1aa',
+  skinTonesContainer: '#27272a',
+  category: {
+    icon: '#71717a',
+    iconActive: '#2563eb',
+    container: '#18181b',
+    containerActive: '#27272a',
+  },
+  search: {
+    background: '#27272a',
+    text: '#f4f4f5',
+    placeholder: '#71717a',
+    icon: '#71717a',
+  },
+  customButton: {
+    icon: '#71717a',
+    iconPressed: '#f4f4f5',
+    background: '#18181b',
+    backgroundPressed: '#27272a',
+  },
+  emoji: {
+    selected: 'rgba(37,99,235,0.2)',
+  },
+};
 
 interface ChatWindowProps {
   chatId: string;
@@ -82,7 +113,10 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [selectedMessageForMenu, setSelectedMessageForMenu] = useState<Message | null>(null);
+  const [emojiPickerMessage, setEmojiPickerMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [reactionsDetailMessage, setReactionsDetailMessage] = useState<Message | null>(null);
+  const [reportingMessage, setReportingMessage] = useState<Message | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   
@@ -100,7 +134,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
 
   const badgeScaleAnim = useRef(new Animated.Value(0)).current;
 
-  const { chat, displayName, isGroup, loading: chatLoading, error: chatError } = useChatDetails(chatId, currentUserId);
+  const { chat, displayName, isGroup, loading: chatLoading, error: chatError, removed, setChat } = useChatDetails(chatId, currentUserId);
   const {
     messages,
     loading: messagesLoading,
@@ -112,6 +146,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     retryMessage,
     sendMediaMessage,
     forwardMessage,
+    toggleReaction,
     unreadCountBelow,
     showNewMessageBadge,
     firstUnreadId,
@@ -122,7 +157,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   } = useChatMessages({ chatId, currentUserId });
 
   const { chats } = useChatList(currentUserId, chatId);
-  const { incomingCall, activeCall, initiateCall, acceptCall, rejectCall, endCall } = useCalls(user);
+  const { startCall } = useCallContext();
 
   const listItems = useMemo(
     () => buildListItems(messages, firstUnreadId).reverse(),
@@ -131,8 +166,23 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const hasScrolledInitiallyRef = useRef(false);
   const avatarColor = getAvatarColor(chatId);
   const avatarLetter = displayName.charAt(0).toUpperCase();
+  const otherParticipant = useMemo(
+    () => chat?.participants.find(p => p._id !== currentUserId),
+    [chat, currentUserId]
+  );
+  const chatAvatarUrl = isGroup ? chat?.avatar : otherParticipant?.avatar;
   const isLoading = chatLoading || messagesLoading;
   const error = chatError || messagesError;
+
+  const handleCallAction = useCallback((type: 'voice' | 'video') => {
+    startCall({
+      chatId,
+      calleeId: isGroup ? '' : (otherParticipant?._id || ''),
+      calleeName: displayName,
+      calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
+      type,
+    });
+  }, [startCall, chatId, isGroup, otherParticipant, displayName, chat]);
 
   const [showAttachSheet, setShowAttachSheet] = useState(false);
   const { pickFromLibrary, pickFromCamera } = useMediaPicker();
@@ -292,6 +342,14 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     hasScrolledInitiallyRef.current = false;
   }, [chatId]);
 
+  // If the current user is removed from / leaves this group elsewhere, bail out.
+  useEffect(() => {
+    if (removed) {
+      setShowSidebar(false);
+      handleBack();
+    }
+  }, [removed, handleBack]);
+
   const scrollToBottom = useCallback((animated = true) => {
     if (listItems.length === 0) return;
     flatListRef.current?.scrollToOffset({ offset: 0, animated });
@@ -441,6 +499,11 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     updateScrollPosition(nearBottom);
   }, [updateScrollPosition]);
 
+  const handleToggleReaction = useCallback((message: Message, emoji: string) => {
+    if (!user) return;
+    toggleReaction(message, emoji, { username: user.username, avatar: user.avatar });
+  }, [user, toggleReaction]);
+
   const renderItem = useCallback(({ item }: ListRenderItemInfo<ListItem>) => {
     if (item.type === 'date') {
       return (
@@ -466,13 +529,18 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         message={item.message}
         isOwn={isOwn}
         showSenderName={isGroup}
+        showAvatar={!isOwn}
+        currentUserId={currentUserId}
         onRetry={() => retryMessage(item.message)}
         onLongPress={() => setSelectedMessageForMenu(item.message)}
         onSwipeReply={() => setReplyingTo(item.message)}
         onPressMedia={(url, type) => setViewingMedia({ url, type })}
+        onToggleReaction={(emoji) => handleToggleReaction(item.message, emoji)}
+        onOpenReactions={() => setReactionsDetailMessage(item.message)}
+        onCallAction={handleCallAction}
       />
     );
-  }, [currentUserId, isGroup, retryMessage]);
+  }, [currentUserId, isGroup, retryMessage, handleToggleReaction, handleCallAction]);
 
   const handleUnpinTop = useCallback(async () => {
     if (pinnedMessages.length === 0) return;
@@ -530,24 +598,46 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
           <Feather name="arrow-left" size={24} color="#f4f4f5" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.headerAvatar, { backgroundColor: avatarColor }]} onPress={() => setShowSidebar(true)}>
-          <Text style={styles.headerAvatarText}>{avatarLetter}</Text>
+        <TouchableOpacity style={styles.headerAvatarWrap} onPress={() => setShowSidebar(true)}>
+          {chatAvatarUrl ? (
+            <Image source={{ uri: chatAvatarUrl }} style={styles.headerAvatar} />
+          ) : (
+            <View style={[styles.headerAvatar, { backgroundColor: avatarColor, justifyContent: 'center', alignItems: 'center' }]}>
+              <Text style={styles.headerAvatarText}>{avatarLetter}</Text>
+            </View>
+          )}
         </TouchableOpacity>
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowSidebar(true)}>
           <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
           {isGroup && <Text style={styles.headerSubtitle}>Group chat</Text>}
         </TouchableOpacity>
         <View style={styles.headerActions}>
-          {!isGroup && (
-            <>
-              <TouchableOpacity style={styles.headerActionBtn} onPress={() => initiateCall(chatId, chat?.participants.find(p => p._id !== currentUserId)?._id || '', displayName, undefined, 'voice')}>
-                <Feather name="phone" size={20} color="#f4f4f5" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.headerActionBtn} onPress={() => initiateCall(chatId, chat?.participants.find(p => p._id !== currentUserId)?._id || '', displayName, undefined, 'video')}>
-                <Feather name="video" size={20} color="#f4f4f5" />
-              </TouchableOpacity>
-            </>
-          )}
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={() => startCall({
+              chatId,
+              // Groups have no single callee — the backend fans the call out to
+              // every participant when calleeId is empty.
+              calleeId: isGroup ? '' : (otherParticipant?._id || ''),
+              calleeName: displayName,
+              calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
+              type: 'voice',
+            })}
+          >
+            <Feather name="phone" size={20} color="#f4f4f5" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={() => startCall({
+              chatId,
+              calleeId: isGroup ? '' : (otherParticipant?._id || ''),
+              calleeName: displayName,
+              calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
+              type: 'video',
+            })}
+          >
+            <Feather name="video" size={20} color="#f4f4f5" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.headerActionBtn} onPress={() => setShowSidebar(true)}>
             <Feather name="more-vertical" size={20} color="#f4f4f5" />
           </TouchableOpacity>
@@ -630,6 +720,23 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
                     <ActivityIndicator size="small" color="#60a5fa" />
                     <Text style={styles.loadMoreText}>Loading older messages...</Text>
                   </View>
+                </View>
+              ) : !hasMore ? (
+                <View style={styles.introHeader}>
+                  {chatAvatarUrl ? (
+                    <Image source={{ uri: chatAvatarUrl }} style={styles.introAvatar} />
+                  ) : (
+                    <View style={[styles.introAvatar, { backgroundColor: avatarColor, justifyContent: 'center', alignItems: 'center' }]}>
+                      <Text style={styles.introAvatarText}>{avatarLetter}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.introName}>{displayName}</Text>
+                  <Text style={styles.introSubtitle}>
+                    {isGroup ? `Group · ${chat?.participants.length || 0} participants` : displayName}
+                  </Text>
+                  <TouchableOpacity style={styles.introButton} onPress={() => setShowSidebar(true)} activeOpacity={0.8}>
+                    <Text style={styles.introButtonText}>{isGroup ? 'View Group Info' : 'View Profile'}</Text>
+                  </TouchableOpacity>
                 </View>
               ) : null
             }
@@ -798,6 +905,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       {selectedMessageForMenu && (
         <MessageContextMenu
            message={selectedMessageForMenu}
+           currentUserId={currentUserId}
            onClose={() => setSelectedMessageForMenu(null)}
            onReply={() => { setReplyingTo(selectedMessageForMenu); setSelectedMessageForMenu(null); }}
            onEdit={() => {
@@ -805,9 +913,14 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
              setInputText(selectedMessageForMenu.text || '');
              setSelectedMessageForMenu(null);
            }}
-           onReact={async (emoji: string) => {
+           onReact={(emoji: string) => {
+             const msg = selectedMessageForMenu;
              setSelectedMessageForMenu(null);
-             await chatApi.addReaction(selectedMessageForMenu._id, emoji);
+             handleToggleReaction(msg, emoji);
+           }}
+           onOpenFullPicker={() => {
+             setEmojiPickerMessage(selectedMessageForMenu);
+             setSelectedMessageForMenu(null);
            }}
            onPin={async () => {
              const isCurrentlyPinned = selectedMessageForMenu.isPinned;
@@ -830,9 +943,32 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
              setForwardingMessage(selectedMessageForMenu);
              setSelectedMessageForMenu(null);
            }}
+           onReport={() => {
+             setReportingMessage(selectedMessageForMenu);
+             setSelectedMessageForMenu(null);
+           }}
            isOwn={selectedMessageForMenu.sender?._id === currentUserId}
         />
       )}
+
+      {/* Report Message Modal */}
+      <ReportModal
+        isOpen={!!reportingMessage}
+        onClose={() => setReportingMessage(null)}
+        targetId={reportingMessage?._id || ''}
+        targetType="message"
+      />
+
+      <EmojiPicker
+        open={!!emojiPickerMessage}
+        onClose={() => setEmojiPickerMessage(null)}
+        onEmojiSelected={(emojiObject) => {
+          if (emojiPickerMessage) handleToggleReaction(emojiPickerMessage, emojiObject.emoji);
+        }}
+        enableSearchBar
+        categoryPosition="top"
+        theme={emojiPickerTheme}
+      />
 
       <ForwardMessageModal
         isOpen={!!forwardingMessage}
@@ -846,22 +982,25 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         }}
       />
 
+      {reactionsDetailMessage && (
+        <ReactionsDetailSheet
+          message={messages.find(m => m._id === reactionsDetailMessage._id) || reactionsDetailMessage}
+          currentUserId={currentUserId}
+          onClose={() => setReactionsDetailMessage(null)}
+          onToggleReaction={(emoji) => {
+            const live = messages.find(m => m._id === reactionsDetailMessage._id) || reactionsDetailMessage;
+            handleToggleReaction(live, emoji);
+          }}
+        />
+      )}
+
       {chat && (
         <ChatSidebar
           isOpen={showSidebar}
           onClose={() => setShowSidebar(false)}
           chat={chat}
           currentUserId={currentUserId}
-        />
-      )}
-
-      {(incomingCall || activeCall) && (
-        <CallModal
-          incomingCall={incomingCall}
-          activeCall={activeCall}
-          onAccept={acceptCall}
-          onReject={rejectCall}
-          onEnd={endCall}
+          onUpdateChat={(updated) => updated && setChat(updated)}
         />
       )}
 
@@ -878,12 +1017,117 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
 };
 
 import { Modal } from 'react-native';
-const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin, onDelete, onForward, isOwn }: any) => {
-  const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
-  
-  const canEdit = isOwn && 
-                  !message.isDeletedForEveryone && 
-                  message.text && 
+
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮'];
+
+const ReactionsDetailSheet = ({ message, currentUserId, onClose, onToggleReaction }: {
+  message: Message;
+  currentUserId: string;
+  onClose: () => void;
+  onToggleReaction: (emoji: string) => void;
+}) => {
+  const reactions = message.reactions || [];
+
+  const grouped = React.useMemo(() => {
+    const map = new Map<string, { emoji: string; users: { userId: string; username: string; avatar?: string }[] }>();
+    for (const r of reactions) {
+      const cur = map.get(r.emoji) || { emoji: r.emoji, users: [] };
+      cur.users.push({
+        userId: r.userId,
+        username: r.user?.username || (r.userId === currentUserId ? 'You' : 'Someone'),
+        avatar: r.user?.avatar,
+      });
+      map.set(r.emoji, cur);
+    }
+    return Array.from(map.values());
+  }, [reactions, currentUserId]);
+
+  const [activeTab, setActiveTab] = React.useState<string>('all');
+
+  const visibleRows = React.useMemo(() => {
+    const rows: { emoji: string; userId: string; username: string; avatar?: string }[] = [];
+    for (const g of grouped) {
+      if (activeTab !== 'all' && activeTab !== g.emoji) continue;
+      for (const u of g.users) rows.push({ emoji: g.emoji, ...u });
+    }
+    return rows;
+  }, [grouped, activeTab]);
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <TouchableOpacity style={styles.reactionsSheetOverlay} activeOpacity={1} onPress={onClose}>
+        <TouchableOpacity activeOpacity={1} style={styles.reactionsSheet} onPress={() => {}}>
+          <View style={styles.reactionsSheetHandle} />
+          <Text style={styles.reactionsSheetTitle}>Reactions</Text>
+
+          {/* Emoji tabs */}
+          <View style={styles.reactionsTabsRow}>
+            <TouchableOpacity
+              style={[styles.reactionsTab, activeTab === 'all' && styles.reactionsTabActive]}
+              onPress={() => setActiveTab('all')}
+            >
+              <Text style={[styles.reactionsTabText, activeTab === 'all' && styles.reactionsTabTextActive]}>
+                All {reactions.length}
+              </Text>
+            </TouchableOpacity>
+            {grouped.map((g) => (
+              <TouchableOpacity
+                key={g.emoji}
+                style={[styles.reactionsTab, activeTab === g.emoji && styles.reactionsTabActive]}
+                onPress={() => setActiveTab(g.emoji)}
+              >
+                <Text style={styles.reactionsTabEmoji}>{g.emoji}</Text>
+                <Text style={[styles.reactionsTabText, activeTab === g.emoji && styles.reactionsTabTextActive]}>
+                  {g.users.length}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <FlatList
+            data={visibleRows}
+            keyExtractor={(item, idx) => `${item.userId}-${item.emoji}-${idx}`}
+            style={styles.reactionsList}
+            renderItem={({ item }) => {
+              const isMe = item.userId === currentUserId;
+              return (
+                <TouchableOpacity
+                  style={styles.reactionUserRow}
+                  activeOpacity={isMe ? 0.7 : 1}
+                  disabled={!isMe}
+                  onPress={() => { if (isMe) { onToggleReaction(item.emoji); } }}
+                >
+                  {item.avatar ? (
+                    <Image source={{ uri: item.avatar }} style={styles.reactionUserAvatar} />
+                  ) : (
+                    <View style={[styles.reactionUserAvatar, styles.reactionUserAvatarFallback]}>
+                      <Text style={styles.reactionUserAvatarText}>{(item.username || 'U').charAt(0).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.reactionUserName}>{isMe ? 'You' : item.username}</Text>
+                    {isMe && <Text style={styles.reactionUserHint}>Tap to remove</Text>}
+                  </View>
+                  <Text style={styles.reactionRowEmoji}>{item.emoji}</Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+  );
+};
+
+const MessageContextMenu = ({ message, currentUserId, onClose, onReply, onEdit, onReact, onOpenFullPicker, onPin, onDelete, onForward, onReport, isOwn }: any) => {
+  const myReactions: string[] = React.useMemo(
+    () => (message.reactions || []).filter((r: any) => r.userId === currentUserId).map((r: any) => r.emoji),
+    [message.reactions, currentUserId]
+  );
+
+  const canEdit = isOwn &&
+                  !message.isDeletedForEveryone &&
+                  message.text &&
                   !message.mediaUrl &&
                   Date.now() - new Date(message.createdAt).getTime() < 15 * 60 * 1000;
 
@@ -892,11 +1136,18 @@ const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin,
        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
          <View style={styles.contextMenu}>
            <View style={styles.emojiRow}>
-             {emojis.map(emoji => (
-               <TouchableOpacity key={emoji} onPress={() => onReact(emoji)} style={styles.emojiButton}>
+             {QUICK_EMOJIS.map(emoji => (
+               <TouchableOpacity
+                 key={emoji}
+                 onPress={() => onReact(emoji)}
+                 style={[styles.emojiButton, myReactions.includes(emoji) && styles.emojiButtonActive]}
+               >
                  <Text style={styles.emojiText}>{emoji}</Text>
                </TouchableOpacity>
              ))}
+             <TouchableOpacity onPress={onOpenFullPicker} style={[styles.emojiButton, styles.emojiPlusButton]}>
+               <Feather name="plus" size={20} color="#a1a1aa" />
+             </TouchableOpacity>
            </View>
            <View style={styles.menuDivider} />
            <TouchableOpacity style={styles.contextMenuItem} onPress={onReply}>
@@ -926,6 +1177,12 @@ const MessageContextMenu = ({ message, onClose, onReply, onEdit, onReact, onPin,
              <Feather name="corner-up-right" size={20} color="#f4f4f5" />
              <Text style={styles.contextMenuItemText}>Forward</Text>
            </TouchableOpacity>
+           {!isOwn && (
+             <TouchableOpacity style={styles.contextMenuItem} onPress={onReport}>
+               <Feather name="alert-triangle" size={20} color="#f59e0b" />
+               <Text style={[styles.contextMenuItemText, { color: '#f59e0b' }]}>Report Message</Text>
+             </TouchableOpacity>
+           )}
            {isOwn && (
              <TouchableOpacity style={styles.contextMenuItem} onPress={onDelete}>
                <Feather name="trash-2" size={20} color="#ef4444" />
@@ -958,13 +1215,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  headerAvatarWrap: {
+    marginRight: 10,
+  },
   headerAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
   },
   headerAvatarText: {
     color: '#fff',
@@ -1127,6 +1384,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  introHeader: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+  },
+  introAvatar: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    marginBottom: 14,
+  },
+  introAvatarText: {
+    color: '#fff',
+    fontSize: 40,
+    fontWeight: '800',
+  },
+  introName: {
+    color: '#f4f4f5',
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  introSubtitle: {
+    color: '#71717a',
+    fontSize: 14,
+    marginBottom: 18,
+  },
+  introButton: {
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+    paddingHorizontal: 22,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  introButtonText: {
+    color: '#e4e4e7',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   newMessageBadge: {
     position: 'absolute',
     bottom: 16,
@@ -1246,6 +1543,15 @@ const styles = StyleSheet.create({
   },
   emojiButton: {
     padding: 6,
+    borderRadius: 20,
+  },
+  emojiButtonActive: {
+    backgroundColor: 'rgba(37,99,235,0.25)',
+  },
+  emojiPlusButton: {
+    backgroundColor: '#27272a',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emojiText: {
     fontSize: 24,
@@ -1322,5 +1628,103 @@ const styles = StyleSheet.create({
     color: '#a1a1aa',
     fontSize: 12,
     fontStyle: 'italic',
+  },
+  reactionsSheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  reactionsSheet: {
+    backgroundColor: '#18181b',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    maxHeight: '70%',
+  },
+  reactionsSheetHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3f3f46',
+    marginBottom: 12,
+  },
+  reactionsSheetTitle: {
+    color: '#f4f4f5',
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  reactionsTabsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 12,
+    gap: 8,
+    marginBottom: 8,
+  },
+  reactionsTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#27272a',
+    gap: 4,
+  },
+  reactionsTabActive: {
+    backgroundColor: 'rgba(37,99,235,0.25)',
+    borderWidth: 1,
+    borderColor: '#2563eb',
+  },
+  reactionsTabEmoji: {
+    fontSize: 15,
+  },
+  reactionsTabText: {
+    color: '#a1a1aa',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  reactionsTabTextActive: {
+    color: '#93c5fd',
+  },
+  reactionsList: {
+    paddingHorizontal: 8,
+  },
+  reactionUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  reactionUserAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  reactionUserAvatarFallback: {
+    backgroundColor: '#3f3f46',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionUserAvatarText: {
+    color: '#e4e4e7',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  reactionUserName: {
+    color: '#f4f4f5',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  reactionUserHint: {
+    color: '#71717a',
+    fontSize: 12,
+    marginTop: 1,
+  },
+  reactionRowEmoji: {
+    fontSize: 22,
   },
 });

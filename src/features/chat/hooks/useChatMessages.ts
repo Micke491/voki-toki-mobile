@@ -73,6 +73,48 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     });
   }, []);
 
+  const addReactionLocal = useCallback((messageId: string, reaction: { userId: string; emoji: string; createdAt: string; user?: { username: string; avatar?: string } }) => {
+    setMessages(prev =>
+      prev.map(m => {
+        if (m._id !== messageId) return m;
+        if (m.reactions?.some(r => r.userId === reaction.userId && r.emoji === reaction.emoji)) return m;
+        return { ...m, reactions: [...(m.reactions || []), reaction] };
+      })
+    );
+  }, [setMessages]);
+
+  const removeReactionLocal = useCallback((messageId: string, userId: string, emoji: string) => {
+    setMessages(prev =>
+      prev.map(m =>
+        m._id === messageId
+          ? { ...m, reactions: (m.reactions || []).filter(r => !(r.userId === userId && r.emoji === emoji)) }
+          : m
+      )
+    );
+  }, [setMessages]);
+
+  const toggleReaction = useCallback(async (message: Message, emoji: string, sender: { username: string; avatar?: string }) => {
+    const reacted = message.reactions?.some(r => r.userId === currentUserId && r.emoji === emoji);
+
+    if (reacted) {
+      removeReactionLocal(message._id, currentUserId, emoji);
+      try {
+        await chatApi.removeReaction(message._id, chatId, emoji);
+      } catch (err) {
+        addReactionLocal(message._id, { userId: currentUserId, emoji, createdAt: new Date().toISOString(), user: sender });
+        console.error('Failed to remove reaction', err);
+      }
+    } else {
+      addReactionLocal(message._id, { userId: currentUserId, emoji, createdAt: new Date().toISOString(), user: sender });
+      try {
+        await chatApi.addReaction(message._id, chatId, emoji);
+      } catch (err) {
+        removeReactionLocal(message._id, currentUserId, emoji);
+        console.error('Failed to add reaction', err);
+      }
+    }
+  }, [chatId, currentUserId, addReactionLocal, removeReactionLocal]);
+
   const deleteMessageForEveryone = useCallback(async (messageId: string) => {
     try {
       await chatApi.deleteMessageForEveryone(messageId);
@@ -314,6 +356,14 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       );
     };
 
+    const onReactionAdded = (data: { chatId: string; messageId: string; reaction: { userId: string; emoji: string; createdAt: string; user?: { username: string; avatar?: string } } }) => {
+      addReactionLocal(data.messageId, data.reaction);
+    };
+
+    const onReactionRemoved = (data: { chatId: string; messageId: string; userId: string; emoji: string }) => {
+      removeReactionLocal(data.messageId, data.userId, data.emoji);
+    };
+
     const onUserTyping = (data: { username: string; userId: string }) => {
       if (String(data.userId) !== String(currentUserId)) {
         setTypingUsers((prev) => {
@@ -334,6 +384,8 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     channel.bind('messages-delivered', onMessagesDelivered);
     channel.bind('message-pinned', onMessagePinned);
     channel.bind('message-unpinned', onMessageUnpinned);
+    channel.bind('message-reaction-added', onReactionAdded);
+    channel.bind('message-reaction-removed', onReactionRemoved);
     channel.bind('user-typing', onUserTyping);
     channel.bind('user-stopped-typing', onUserStoppedTyping);
 
@@ -345,10 +397,12 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       channel.unbind('messages-delivered', onMessagesDelivered);
       channel.unbind('message-pinned', onMessagePinned);
       channel.unbind('message-unpinned', onMessageUnpinned);
+      channel.unbind('message-reaction-added', onReactionAdded);
+      channel.unbind('message-reaction-removed', onReactionRemoved);
       channel.unbind('user-typing', onUserTyping);
       channel.unbind('user-stopped-typing', onUserStoppedTyping);
     };
-  }, [chatId, currentUserId, setMessages]);
+  }, [chatId, currentUserId, setMessages, addReactionLocal, removeReactionLocal]);
 
   const sendMessage = useCallback(async (text: string, sender: Message['sender']) => {
     const trimmed = text.trim();
@@ -523,6 +577,7 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     sendMediaMessage,
     deleteMessageForEveryone,
     forwardMessage,
+    toggleReaction,
     unreadCountBelow,
     showNewMessageBadge,
     firstUnreadId,

@@ -17,10 +17,15 @@ interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
   showSenderName?: boolean;
+  showAvatar?: boolean;
+  currentUserId?: string;
   onRetry?: () => void;
   onLongPress?: () => void;
   onSwipeReply?: () => void;
   onPressMedia?: (url: string, type: 'image' | 'video') => void;
+  onToggleReaction?: (emoji: string) => void;
+  onOpenReactions?: () => void;
+  onCallAction?: (type: 'voice' | 'video') => void;
 }
 
 function getMessageContent(message: Message): string {
@@ -40,20 +45,36 @@ function getMessageContent(message: Message): string {
   return message.text || '';
 }
 
-export const MessageBubble = ({ message, isOwn, showSenderName, onRetry, onLongPress, onSwipeReply, onPressMedia }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, currentUserId, onRetry, onLongPress, onSwipeReply, onPressMedia, onToggleReaction, onOpenReactions, onCallAction }: MessageBubbleProps) => {
   const translateX = React.useRef(new Animated.Value(0)).current;
+
+  const groupedReactions = React.useMemo(() => {
+    if (!message.reactions || message.reactions.length === 0) return [];
+    const map = new Map<string, { emoji: string; count: number; reactedByMe: boolean }>();
+    for (const r of message.reactions) {
+      const cur = map.get(r.emoji) || { emoji: r.emoji, count: 0, reactedByMe: false };
+      cur.count += 1;
+      if (currentUserId && r.userId === currentUserId) cur.reactedByMe = true;
+      map.set(r.emoji, cur);
+    }
+    return Array.from(map.values());
+  }, [message.reactions, currentUserId]);
+  const hasReactions = groupedReactions.length > 0;
 
   const isOwnRef = React.useRef(isOwn);
   const onSwipeReplyRef = React.useRef(onSwipeReply);
-  
+  const isInertRef = React.useRef(message.mediaType === 'call' || !!message.isDeletedForEveryone);
+
   React.useEffect(() => {
     isOwnRef.current = isOwn;
     onSwipeReplyRef.current = onSwipeReply;
-  }, [isOwn, onSwipeReply]);
+    isInertRef.current = message.mediaType === 'call' || !!message.isDeletedForEveryone;
+  }, [isOwn, onSwipeReply, message.mediaType, message.isDeletedForEveryone]);
 
-  const panResponder = React.useMemo(() => 
+  const panResponder = React.useMemo(() =>
     PanResponder.create({
       onMoveShouldSetPanResponder: (evt, gestureState) => {
+        if (isInertRef.current) return false;
         return Math.abs(gestureState.dx) > 20 && Math.abs(gestureState.dy) < 20;
       },
       onPanResponderMove: (evt, gestureState) => {
@@ -93,12 +114,17 @@ export const MessageBubble = ({ message, isOwn, showSenderName, onRetry, onLongP
   }
 
   const content = getMessageContent(message);
+  const isDeleted = !!message.isDeletedForEveryone;
   const hasMedia = !!message.mediaType && !message.isDeletedForEveryone;
   const isMediaOnly = hasMedia && !message.text?.trim() && (message.mediaType === 'image' || message.mediaType === 'video' || message.mediaType === 'gif' || message.mediaType === 'sticker');
+  const isCallMessage = hasMedia && message.mediaType === 'call';
+  const isInert = isCallMessage || isDeleted;
+
+  const showLeftAvatar = !isOwn && showAvatar;
 
   return (
-    <Animated.View 
-      style={[styles.row, isOwn ? styles.rowOwn : styles.rowOther, { transform: [{ translateX }] }]} 
+    <Animated.View
+      style={[styles.row, isOwn ? styles.rowOwn : styles.rowOther, hasReactions && styles.rowWithReactions, { transform: [{ translateX }] }]}
       {...panResponder.panHandlers}
     >
       {message.isForwarded && (
@@ -108,14 +134,27 @@ export const MessageBubble = ({ message, isOwn, showSenderName, onRetry, onLongP
         </View>
       )}
 
-      <TouchableOpacity 
+      <View style={[styles.bubbleRow, isOwn ? styles.bubbleRowOwn : styles.bubbleRowOther]}>
+        {showLeftAvatar && (
+          message.sender?.avatar ? (
+            <Image source={{ uri: message.sender.avatar }} style={styles.senderAvatar} />
+          ) : (
+            <View style={[styles.senderAvatar, styles.senderAvatarFallback]}>
+              <Text style={styles.senderAvatarText}>{(message.sender?.username || 'U').charAt(0).toUpperCase()}</Text>
+            </View>
+          )
+        )}
+
+        <View style={styles.bubbleWrapper}>
+      <TouchableOpacity
         style={[
-          styles.bubble, 
+          styles.bubble,
           isOwn ? styles.bubbleOwn : styles.bubbleOther,
-          isMediaOnly && styles.bubbleMediaOnly,
+          (isMediaOnly || isCallMessage) && styles.bubbleMediaOnly,
+          isDeleted && styles.bubbleDeleted,
         ]}
-        onLongPress={onLongPress}
-        activeOpacity={0.8}
+        onLongPress={isInert ? undefined : onLongPress}
+        activeOpacity={isInert ? 1 : 0.8}
         delayLongPress={300}
       >
         {message.replyTo && (
@@ -152,7 +191,17 @@ export const MessageBubble = ({ message, isOwn, showSenderName, onRetry, onLongP
         {hasMedia && message.mediaType === 'audio' && message.mediaUrl && (
           <VoiceMessagePlayer mediaUrl={message.mediaUrl} isOwn={isOwn} />
         )}
-        {hasMedia && message.text ? (
+        {isCallMessage && (
+          <CallMessageCard
+            text={message.text}
+            isOwn={isOwn}
+            onPress={() => {
+              const t = (message.text || '').toLowerCase();
+              onCallAction?.(t.includes('video') ? 'video' : 'voice');
+            }}
+          />
+        )}
+        {hasMedia && message.mediaType !== 'call' && message.text ? (
           <Text style={[styles.text, isOwn && styles.textOwn, { marginTop: 6 }, isMediaOnly && { marginHorizontal: 12, marginBottom: 8 }]}>{message.text}</Text>
         ) : null}
         {!hasMedia && (
@@ -175,19 +224,139 @@ export const MessageBubble = ({ message, isOwn, showSenderName, onRetry, onLongP
           <Text style={[styles.time, isOwn && styles.metaOwn]}>{formatMessageTime(message.createdAt)}</Text>
           {isOwn && <MessageStatusIcon status={message.status} onRetry={onRetry} />}
         </View>
-
-        {message.reactions && message.reactions.length > 0 && (
-          <View style={styles.reactionsContainer}>
-             {message.reactions.map((reaction, index) => (
-                <View key={index} style={styles.reactionBadge}>
-                  <Text style={styles.reactionEmoji}>{reaction.emoji}</Text>
-                </View>
-             ))}
-          </View>
-        )}
       </TouchableOpacity>
+
+          {hasReactions && !isInert && (
+            <TouchableOpacity
+              style={[
+                styles.reactionsPill,
+                isOwn ? styles.reactionsPillOwn : styles.reactionsPillOther,
+                groupedReactions.some(r => r.reactedByMe) && styles.reactionsPillActive,
+              ]}
+              onPress={() => onOpenReactions?.()}
+              activeOpacity={0.8}
+            >
+              <View style={styles.reactionStack}>
+                {groupedReactions.slice(0, 3).map((r, idx) => (
+                  <View
+                    key={r.emoji}
+                    style={[styles.reactionStackItem, idx > 0 && styles.reactionStackItemOverlap, { zIndex: 10 - idx }]}
+                  >
+                    <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.reactionTotalCount}>{message.reactions!.length}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
     </Animated.View>
   );
+};
+
+const CallMessageCard = ({ text, isOwn, onPress }: { text?: string; isOwn: boolean; onPress: () => void }) => {
+  const lower = (text || '').toLowerCase();
+  const isEnded = lower.includes('ended');
+  const isVideo = lower.includes('video');
+
+  const scheme = isEnded ? callCardEnded : isOwn ? callCardOwn : callCardOther;
+
+  return (
+    <View style={[callCardStyles.card, scheme.card]}>
+      <View style={[callCardStyles.iconWrap, scheme.iconWrap]}>
+        <Feather name={isVideo ? 'video' : 'phone'} size={18} color={scheme.iconColor.color} />
+      </View>
+      <View style={callCardStyles.textCol}>
+        <Text style={[callCardStyles.title, scheme.title]} numberOfLines={1}>{text}</Text>
+        <Text style={[callCardStyles.subtitle, scheme.subtitle]}>
+          {isEnded ? 'Call Ended' : isOwn ? 'Outgoing' : 'Incoming'}
+        </Text>
+      </View>
+      <TouchableOpacity style={[callCardStyles.actionBtn, scheme.actionBtn]} onPress={onPress} activeOpacity={0.8}>
+        <Feather name={isVideo ? 'video' : 'phone'} size={12} color={scheme.actionText.color} />
+        <Text style={[callCardStyles.actionText, scheme.actionText]}>
+          {isEnded ? 'Call Again' : isOwn ? 'Call Again' : 'Join Call'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const callCardStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    minWidth: 220,
+  },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textCol: {
+    flexShrink: 1,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  subtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  actionBtn: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  actionText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+});
+
+const callCardEnded = {
+  card: { backgroundColor: 'rgba(63,63,70,0.4)', borderColor: '#3f3f46' },
+  iconWrap: { backgroundColor: '#3f3f46' },
+  iconColor: { color: '#a1a1aa' },
+  title: { color: '#d4d4d8' },
+  subtitle: { color: '#71717a' },
+  actionBtn: { backgroundColor: '#18181b', borderColor: '#3f3f46' },
+  actionText: { color: '#f4f4f5' },
+};
+
+const callCardOwn = {
+  card: { backgroundColor: 'rgba(34,197,94,0.14)', borderColor: 'rgba(34,197,94,0.35)' },
+  iconWrap: { backgroundColor: 'rgba(34,197,94,0.22)' },
+  iconColor: { color: '#4ade80' },
+  title: { color: '#86efac' },
+  subtitle: { color: '#4ade80' },
+  actionBtn: { backgroundColor: 'rgba(34,197,94,0.28)', borderColor: 'rgba(34,197,94,0.4)' },
+  actionText: { color: '#bbf7d0' },
+};
+
+const callCardOther = {
+  card: { backgroundColor: 'rgba(59,130,246,0.14)', borderColor: 'rgba(59,130,246,0.35)' },
+  iconWrap: { backgroundColor: 'rgba(59,130,246,0.22)' },
+  iconColor: { color: '#60a5fa' },
+  title: { color: '#93c5fd' },
+  subtitle: { color: '#60a5fa' },
+  actionBtn: { backgroundColor: 'rgba(59,130,246,0.28)', borderColor: 'rgba(59,130,246,0.4)' },
+  actionText: { color: '#bfdbfe' },
 };
 
 const VoiceMessagePlayer = ({ mediaUrl, isOwn }: { mediaUrl: string; isOwn: boolean }) => {
@@ -501,8 +670,42 @@ const styles = StyleSheet.create({
   rowOther: {
     alignItems: 'flex-start',
   },
+  rowWithReactions: {
+    marginBottom: 18,
+  },
+  bubbleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    maxWidth: '86%',
+  },
+  bubbleRowOwn: {
+    justifyContent: 'flex-end',
+  },
+  bubbleRowOther: {
+    justifyContent: 'flex-start',
+  },
+  bubbleWrapper: {
+    position: 'relative',
+    flexShrink: 1,
+  },
+  senderAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 8,
+    marginBottom: 2,
+  },
+  senderAvatarFallback: {
+    backgroundColor: '#3f3f46',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  senderAvatarText: {
+    color: '#e4e4e7',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   bubble: {
-    maxWidth: '80%',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 8,
@@ -520,6 +723,9 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     backgroundColor: 'transparent',
     overflow: 'visible',
+  },
+  bubbleDeleted: {
+    opacity: 0.6,
   },
   senderName: {
     color: '#60a5fa',
@@ -677,24 +883,54 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontStyle: 'italic',
   },
-  reactionsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  reactionsPill: {
     position: 'absolute',
-    bottom: -10,
-    right: 10,
-    gap: 4,
-  },
-  reactionBadge: {
+    bottom: -13,
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#18181b',
-    borderRadius: 12,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: '#27272a',
+    borderRadius: 14,
+    paddingHorizontal: 5,
+    paddingVertical: 2.5,
+    borderWidth: 1.5,
+    borderColor: '#09090b',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
+    gap: 2,
+  },
+  // Instagram-style: reaction sits on the outer-bottom corner of the bubble.
+  reactionsPillOwn: {
+    right: 6,
+  },
+  reactionsPillOther: {
+    left: 6,
+  },
+  reactionsPillActive: {
+    borderColor: '#2563eb',
+  },
+  reactionStack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  reactionStackItem: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionStackItemOverlap: {
+    marginLeft: -6,
   },
   reactionEmoji: {
-    fontSize: 12,
+    fontSize: 14,
+  },
+  reactionTotalCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#d4d4d8',
+    marginLeft: 2,
+    marginRight: 2,
   },
   voiceMessageContainer: {
     flexDirection: 'row',

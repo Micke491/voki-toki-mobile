@@ -161,12 +161,12 @@ export const chatApi = {
     await apiClient.post(`/chats/${chatId}/reject`);
   },
 
-  addReaction: async (messageId: string, emoji: string): Promise<void> => {
-    await apiClient.post(`/chat/message/messages/${messageId}/reaction`, { emoji });
+  addReaction: async (messageId: string, chatId: string, emoji: string): Promise<void> => {
+    await apiClient.post(`/chat/message/messages/${messageId}/reaction`, { emoji, chatId });
   },
 
-  removeReaction: async (messageId: string, emoji: string): Promise<void> => {
-    await apiClient.delete(`/chat/message/messages/${messageId}/reaction`, { data: { emoji } });
+  removeReaction: async (messageId: string, chatId: string, emoji: string): Promise<void> => {
+    await apiClient.delete(`/chat/message/messages/${messageId}/reaction?chatId=${encodeURIComponent(chatId)}&emoji=${encodeURIComponent(emoji)}`);
   },
 
   deleteMessage: async (messageId: string, forEveryone: boolean = false): Promise<void> => {
@@ -204,13 +204,18 @@ export const chatApi = {
   },
 
   // Call APIs
-  initiateCall: async (payload: { call_id: string; caller_id: string; callee_id: string; call_type: string; caller_name: string; caller_avatar?: string; chat_id: string; }): Promise<{ token: string }> => {
+  initiateCall: async (payload: { call_id: string; caller_id: string; callee_id: string; call_type: string; caller_name: string; caller_avatar?: string; chat_id: string; }): Promise<{ call_id: string; message: string }> => {
     const response = await apiClient.post('/call/initiate', payload);
     return response.data;
   },
-  
-  acceptCall: async (callId: string, userId: string): Promise<{ token: string }> => {
+
+  acceptCall: async (callId: string, userId: string): Promise<{ message: string }> => {
     const response = await apiClient.post('/call/accept', { call_id: callId, user_id: userId });
+    return response.data;
+  },
+
+  getIceServers: async (): Promise<{ iceServers: any[] }> => {
+    const response = await apiClient.get('/call/ice-servers');
     return response.data;
   },
   
@@ -223,14 +228,23 @@ export const chatApi = {
   },
 
   // Admin APIs
-  removeParticipant: async (chatId: string, userId: string): Promise<void> => {
-    await apiClient.post(`/chat/${chatId}/remove`, { userId });
+  removeParticipant: async (chatId: string, userId: string): Promise<ChatDetails> => {
+    const response = await apiClient.post(`/chat/${chatId}/remove`, { userId });
+    return response.data;
   },
   
-  changeAdmin: async (chatId: string, newAdminId: string): Promise<void> => {
-    await apiClient.post(`/chat/${chatId}/admin`, { groupAdmin: newAdminId });
+  changeAdmin: async (chatId: string, newAdminId: string): Promise<ChatDetails> => {
+    // The backend has no /admin route; group admin is changed through the
+    // generic group update endpoint (same as the web app).
+    const response = await apiClient.patch(`/chat/${chatId}/update`, { groupAdmin: newAdminId });
+    return response.data;
   },
-  
+
+  updateGroupInfo: async (chatId: string, payload: { name?: string; avatar?: string }): Promise<ChatDetails> => {
+    const response = await apiClient.patch(`/chat/${chatId}/update`, payload);
+    return response.data;
+  },
+
   leaveGroup: async (chatId: string): Promise<void> => {
     await apiClient.post(`/chat/${chatId}/leave`);
   },
