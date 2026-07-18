@@ -41,6 +41,30 @@ export interface SearchUser {
   avatar?: string;
 }
 
+export interface UserProfileLink {
+  label?: string;
+  url: string;
+}
+
+export interface UserProfile {
+  _id: string;
+  username: string;
+  name?: string;
+  bio?: string;
+  avatar?: string;
+  location?: string;
+  gender?: string;
+  links?: UserProfileLink[];
+  createdAt?: string;
+  activeStoriesCount?: number;
+}
+
+export interface BlockStatus {
+  blocked: boolean;
+  blockedByMe?: boolean;
+  blockedByThem?: boolean;
+}
+
 export interface ListItem {
   type: 'header' | 'user';
   id: string;
@@ -64,6 +88,7 @@ export interface Message {
   mediaType?: 'image' | 'video' | 'audio' | 'gif' | 'sticker' | 'call';
   mediaPublicId?: string;
   readBy?: { userId: string; readAt: string }[];
+  deliveredTo?: string[];
   reactions?: {
     userId: string;
     emoji: string;
@@ -97,4 +122,9 @@ export interface ChatDetails {
   avatar?: string;
   participants: ChatParticipant[];
   groupAdmin?: string;
+}
+
+export interface WallpaperPreset {
+  name: string;
+  value: string;
 }

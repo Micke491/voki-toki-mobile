@@ -1,7 +1,7 @@
 import { apiClient, API_BASE_URL } from '../../api/client';
 import { Platform } from 'react-native';
 import { getToken } from '../../utils/storage';
-import { ChatDetails, ChatListItem, Message, MessagesResponse, SearchUser } from './types';
+import { BlockStatus, ChatDetails, ChatListItem, Message, MessagesResponse, SearchUser, UserProfile } from './types';
 
 export const chatApi = {
   getChats: async (): Promise<ChatListItem[]> => {
@@ -199,6 +199,17 @@ export const chatApi = {
     await apiClient.post('/users/block', { targetUserId });
   },
 
+  // Returns whether a block exists in either direction for a 1:1 chat.
+  checkBlockStatus: async (chatId: string): Promise<BlockStatus> => {
+    const response = await apiClient.get(`/users/block/check?chatId=${encodeURIComponent(chatId)}`);
+    return response.data;
+  },
+
+  getUserProfile: async (userId: string): Promise<UserProfile> => {
+    const response = await apiClient.get(`/profile/${userId}`);
+    return response.data.user;
+  },
+
   reportUser: async (targetId: string, targetType: string, category: string, details?: string): Promise<void> => {
     await apiClient.post('/reports', { targetId, targetType, category, details });
   },
@@ -230,6 +241,11 @@ export const chatApi = {
   // Admin APIs
   removeParticipant: async (chatId: string, userId: string): Promise<ChatDetails> => {
     const response = await apiClient.post(`/chat/${chatId}/remove`, { userId });
+    return response.data;
+  },
+
+  addParticipants: async (chatId: string, userIds: string[]): Promise<ChatDetails> => {
+    const response = await apiClient.post(`/chat/${chatId}/add`, { userIds });
     return response.data;
   },
   

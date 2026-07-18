@@ -32,10 +32,13 @@ import { chatApi } from '../api';
 import { ForwardMessageModal } from '../../../components/ForwardMessageModal';
 import { useChatList } from '../hooks/useChatList';
 import { ChatSidebar } from './ChatSidebar';
+import { ReadReceiptModal } from './ReadReceiptModal';
 import { useCallContext } from '../../calls/CallContext';
 import { MediaViewer } from '../../../components/MediaViewer';
 import { ReportModal } from '../../../components/ReportModal';
 import EmojiPicker from 'rn-emoji-keyboard';
+import { BlockStatus } from '../types';
+import { getDraft, setDraft } from '../utils/draftStore';
 
 const emojiPickerTheme = {
   backdrop: 'rgba(0,0,0,0.6)',
@@ -117,8 +120,11 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [reactionsDetailMessage, setReactionsDetailMessage] = useState<Message | null>(null);
   const [reportingMessage, setReportingMessage] = useState<Message | null>(null);
+  const [viewingReceiptsFor, setViewingReceiptsFor] = useState<Message | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [blockStatus, setBlockStatus] = useState<BlockStatus | null>(null);
+  const draftLoadedRef = useRef(false);
   
   const [showGiphyPicker, setShowGiphyPicker] = useState(false);
   const [giphyType, setGiphyType] = useState<'gifs' | 'stickers'>('gifs');
@@ -174,7 +180,26 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const isLoading = chatLoading || messagesLoading;
   const error = chatError || messagesError;
 
+  // A deleted account surfaces as a 1:1 chat whose remaining participant has no
+  // usable username (the backend strips it), mirroring the web app.
+  const isRecipientDeleted = useMemo(() => {
+    if (isGroup || !chat) return false;
+    const name = otherParticipant?.username;
+    return !name || name === 'Unknown' || name === 'Unknown User';
+  }, [isGroup, chat, otherParticipant]);
+
+  const isBlockedChat = !!blockStatus?.blocked;
+  // Blocks (either direction) and deleted accounts both make the conversation
+  // read-only: no sending, calling, reacting or replying.
+  const interactionDisabled = isBlockedChat || isRecipientDeleted;
+  const disabledReason: 'blocked' | 'deleted' | null = isBlockedChat
+    ? 'blocked'
+    : isRecipientDeleted
+    ? 'deleted'
+    : null;
+
   const handleCallAction = useCallback((type: 'voice' | 'video') => {
+    if (interactionDisabled) return;
     startCall({
       chatId,
       calleeId: isGroup ? '' : (otherParticipant?._id || ''),
@@ -182,7 +207,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
       type,
     });
-  }, [startCall, chatId, isGroup, otherParticipant, displayName, chat]);
+  }, [startCall, chatId, isGroup, otherParticipant, displayName, chat, interactionDisabled]);
 
   const [showAttachSheet, setShowAttachSheet] = useState(false);
   const { pickFromLibrary, pickFromCamera } = useMediaPicker();
@@ -342,6 +367,43 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     hasScrolledInitiallyRef.current = false;
   }, [chatId]);
 
+  // Restore any saved draft when the chat changes.
+  useEffect(() => {
+    let cancelled = false;
+    draftLoadedRef.current = false;
+    (async () => {
+      const savedDraft = await getDraft(chatId);
+      if (cancelled) return;
+      // Reset to the saved draft (or empty) so drafts never leak between chats.
+      setInputText(savedDraft);
+      draftLoadedRef.current = true;
+    })();
+    return () => { cancelled = true; };
+  }, [chatId]);
+
+  // Persist the composing draft (skip while editing an existing message) and
+  // broadcast it so the chat list can show "Draft: ..." without polling storage.
+  useEffect(() => {
+    if (!draftLoadedRef.current || editingMessage) return;
+    const handle = setTimeout(() => {
+      setDraft(chatId, inputText);
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [inputText, chatId, editingMessage]);
+
+  // Fetch block status for 1:1 chats so we can lock the conversation down.
+  useEffect(() => {
+    if (isGroup || !chat) {
+      setBlockStatus(null);
+      return;
+    }
+    let cancelled = false;
+    chatApi.checkBlockStatus(chatId)
+      .then(status => { if (!cancelled) setBlockStatus(status); })
+      .catch(() => { if (!cancelled) setBlockStatus(null); });
+    return () => { cancelled = true; };
+  }, [chatId, isGroup, chat]);
+
   // If the current user is removed from / leaves this group elsewhere, bail out.
   useEffect(() => {
     if (removed) {
@@ -436,9 +498,10 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   };
 
   const handleSend = useCallback(async () => {
-    if (!user || !inputText.trim()) return;
+    if (!user || !inputText.trim() || interactionDisabled) return;
     const text = inputText;
     setInputText('');
+    setDraft(chatId, '');
 
     if (isTypingRef.current) {
       if (typingTimeoutRef.current) {
@@ -484,7 +547,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         avatar: user.avatar,
       });
     }
-  }, [user, inputText, sendMessage, replyingTo, editingMessage, chatId]);
+  }, [user, inputText, sendMessage, replyingTo, editingMessage, chatId, interactionDisabled]);
 
   const handleScrollToNewMessages = useCallback(() => {
     scrollToBottom(true);
@@ -500,9 +563,9 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   }, [updateScrollPosition]);
 
   const handleToggleReaction = useCallback((message: Message, emoji: string) => {
-    if (!user) return;
+    if (!user || interactionDisabled) return;
     toggleReaction(message, emoji, { username: user.username, avatar: user.avatar });
-  }, [user, toggleReaction]);
+  }, [user, toggleReaction, interactionDisabled]);
 
   const renderItem = useCallback(({ item }: ListRenderItemInfo<ListItem>) => {
     if (item.type === 'date') {
@@ -531,16 +594,17 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         showSenderName={isGroup}
         showAvatar={!isOwn}
         currentUserId={currentUserId}
+        interactionDisabled={interactionDisabled}
         onRetry={() => retryMessage(item.message)}
         onLongPress={() => setSelectedMessageForMenu(item.message)}
-        onSwipeReply={() => setReplyingTo(item.message)}
+        onSwipeReply={() => interactionDisabled ? undefined : setReplyingTo(item.message)}
         onPressMedia={(url, type) => setViewingMedia({ url, type })}
         onToggleReaction={(emoji) => handleToggleReaction(item.message, emoji)}
         onOpenReactions={() => setReactionsDetailMessage(item.message)}
         onCallAction={handleCallAction}
       />
     );
-  }, [currentUserId, isGroup, retryMessage, handleToggleReaction, handleCallAction]);
+  }, [currentUserId, isGroup, retryMessage, handleToggleReaction, handleCallAction, interactionDisabled]);
 
   const handleUnpinTop = useCallback(async () => {
     if (pinnedMessages.length === 0) return;
@@ -614,29 +678,17 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.headerActionBtn}
-            onPress={() => startCall({
-              chatId,
-              // Groups have no single callee — the backend fans the call out to
-              // every participant when calleeId is empty.
-              calleeId: isGroup ? '' : (otherParticipant?._id || ''),
-              calleeName: displayName,
-              calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
-              type: 'voice',
-            })}
+            disabled={interactionDisabled}
+            onPress={() => handleCallAction('voice')}
           >
-            <Feather name="phone" size={20} color="#f4f4f5" />
+            <Feather name="phone" size={20} color={interactionDisabled ? '#3f3f46' : '#f4f4f5'} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.headerActionBtn}
-            onPress={() => startCall({
-              chatId,
-              calleeId: isGroup ? '' : (otherParticipant?._id || ''),
-              calleeName: displayName,
-              calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
-              type: 'video',
-            })}
+            disabled={interactionDisabled}
+            onPress={() => handleCallAction('video')}
           >
-            <Feather name="video" size={20} color="#f4f4f5" />
+            <Feather name="video" size={20} color={interactionDisabled ? '#3f3f46' : '#f4f4f5'} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.headerActionBtn} onPress={() => setShowSidebar(true)}>
             <Feather name="more-vertical" size={20} color="#f4f4f5" />
@@ -811,7 +863,22 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         </View>
       )}
 
-      {/* Input */}
+      {/* Input (replaced by a read-only banner when blocked or the account is deleted) */}
+      {interactionDisabled ? (
+        <View style={styles.disabledBanner}>
+          <Feather
+            name={disabledReason === 'deleted' ? 'user-x' : 'slash'}
+            size={16}
+            color="#a1a1aa"
+            style={{ marginRight: 8 }}
+          />
+          <Text style={styles.disabledBannerText}>
+            {disabledReason === 'deleted'
+              ? 'This account has been deleted. You can no longer send messages or call.'
+              : "You can't send messages to this conversation. A block exists between you and this user."}
+          </Text>
+        </View>
+      ) : (
       <View style={styles.inputBar}>
         {isRecording ? (
           <View style={styles.recordingBar}>
@@ -883,6 +950,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           </>
         )}
       </View>
+      )}
 
       <AttachmentSheet
         visible={showAttachSheet}
@@ -906,7 +974,9 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         <MessageContextMenu
            message={selectedMessageForMenu}
            currentUserId={currentUserId}
+           interactionDisabled={interactionDisabled}
            onClose={() => setSelectedMessageForMenu(null)}
+           onMessageInfo={() => { setViewingReceiptsFor(selectedMessageForMenu); setSelectedMessageForMenu(null); }}
            onReply={() => { setReplyingTo(selectedMessageForMenu); setSelectedMessageForMenu(null); }}
            onEdit={() => {
              setEditingMessage(selectedMessageForMenu);
@@ -1003,6 +1073,13 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           onUpdateChat={(updated) => updated && setChat(updated)}
         />
       )}
+
+      <ReadReceiptModal
+        message={viewingReceiptsFor}
+        onClose={() => setViewingReceiptsFor(null)}
+        currentUserId={currentUserId}
+        participants={chat?.participants || []}
+      />
 
       {viewingMedia && (
         <MediaViewer
@@ -1119,64 +1196,77 @@ const ReactionsDetailSheet = ({ message, currentUserId, onClose, onToggleReactio
   );
 };
 
-const MessageContextMenu = ({ message, currentUserId, onClose, onReply, onEdit, onReact, onOpenFullPicker, onPin, onDelete, onForward, onReport, isOwn }: any) => {
+const MessageContextMenu = ({ message, currentUserId, interactionDisabled, onClose, onMessageInfo, onReply, onEdit, onReact, onOpenFullPicker, onPin, onDelete, onForward, onReport, isOwn }: any) => {
   const myReactions: string[] = React.useMemo(
     () => (message.reactions || []).filter((r: any) => r.userId === currentUserId).map((r: any) => r.emoji),
     [message.reactions, currentUserId]
   );
 
   const canEdit = isOwn &&
+                  !interactionDisabled &&
                   !message.isDeletedForEveryone &&
                   message.text &&
                   !message.mediaUrl &&
                   Date.now() - new Date(message.createdAt).getTime() < 15 * 60 * 1000;
 
+  // When the conversation is read-only (block / deleted account), only allow
+  // non-outgoing actions: view message info, delete your own, report theirs.
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
          <View style={styles.contextMenu}>
-           <View style={styles.emojiRow}>
-             {QUICK_EMOJIS.map(emoji => (
-               <TouchableOpacity
-                 key={emoji}
-                 onPress={() => onReact(emoji)}
-                 style={[styles.emojiButton, myReactions.includes(emoji) && styles.emojiButtonActive]}
-               >
-                 <Text style={styles.emojiText}>{emoji}</Text>
+           {!interactionDisabled && (
+             <>
+               <View style={styles.emojiRow}>
+                 {QUICK_EMOJIS.map(emoji => (
+                   <TouchableOpacity
+                     key={emoji}
+                     onPress={() => onReact(emoji)}
+                     style={[styles.emojiButton, myReactions.includes(emoji) && styles.emojiButtonActive]}
+                   >
+                     <Text style={styles.emojiText}>{emoji}</Text>
+                   </TouchableOpacity>
+                 ))}
+                 <TouchableOpacity onPress={onOpenFullPicker} style={[styles.emojiButton, styles.emojiPlusButton]}>
+                   <Feather name="plus" size={20} color="#a1a1aa" />
+                 </TouchableOpacity>
+               </View>
+               <View style={styles.menuDivider} />
+               <TouchableOpacity style={styles.contextMenuItem} onPress={onReply}>
+                 <Feather name="corner-up-left" size={20} color="#f4f4f5" />
+                 <Text style={styles.contextMenuItemText}>Reply</Text>
                </TouchableOpacity>
-             ))}
-             <TouchableOpacity onPress={onOpenFullPicker} style={[styles.emojiButton, styles.emojiPlusButton]}>
-               <Feather name="plus" size={20} color="#a1a1aa" />
-             </TouchableOpacity>
-           </View>
-           <View style={styles.menuDivider} />
-           <TouchableOpacity style={styles.contextMenuItem} onPress={onReply}>
-             <Feather name="corner-up-left" size={20} color="#f4f4f5" />
-             <Text style={styles.contextMenuItemText}>Reply</Text>
-           </TouchableOpacity>
-           
-           {canEdit && (
-             <TouchableOpacity style={styles.contextMenuItem} onPress={onEdit}>
-               <Feather name="edit-2" size={20} color="#f4f4f5" />
-               <Text style={styles.contextMenuItemText}>Edit</Text>
+
+               {canEdit && (
+                 <TouchableOpacity style={styles.contextMenuItem} onPress={onEdit}>
+                   <Feather name="edit-2" size={20} color="#f4f4f5" />
+                   <Text style={styles.contextMenuItemText}>Edit</Text>
+                 </TouchableOpacity>
+               )}
+
+               <TouchableOpacity style={styles.contextMenuItem} onPress={onPin}>
+                 <Feather
+                   name="map-pin"
+                   size={20}
+                   color={message.isPinned ? "#ef4444" : "#f4f4f5"}
+                   style={message.isPinned ? { transform: [{ rotate: '45deg' }] } : undefined}
+                 />
+                 <Text style={[styles.contextMenuItemText, message.isPinned && { color: '#ef4444' }]}>
+                   {message.isPinned ? "Unpin" : "Pin"}
+                 </Text>
+               </TouchableOpacity>
+               <TouchableOpacity style={styles.contextMenuItem} onPress={onForward}>
+                 <Feather name="corner-up-right" size={20} color="#f4f4f5" />
+                 <Text style={styles.contextMenuItemText}>Forward</Text>
+               </TouchableOpacity>
+             </>
+           )}
+           {isOwn && !message.isDeletedForEveryone && (
+             <TouchableOpacity style={styles.contextMenuItem} onPress={onMessageInfo}>
+               <Feather name="info" size={20} color="#f4f4f5" />
+               <Text style={styles.contextMenuItemText}>Message Info</Text>
              </TouchableOpacity>
            )}
-
-           <TouchableOpacity style={styles.contextMenuItem} onPress={onPin}>
-             <Feather 
-               name="map-pin" 
-               size={20} 
-               color={message.isPinned ? "#ef4444" : "#f4f4f5"} 
-               style={message.isPinned ? { transform: [{ rotate: '45deg' }] } : undefined} 
-             />
-             <Text style={[styles.contextMenuItemText, message.isPinned && { color: '#ef4444' }]}>
-               {message.isPinned ? "Unpin" : "Pin"}
-             </Text>
-           </TouchableOpacity>
-           <TouchableOpacity style={styles.contextMenuItem} onPress={onForward}>
-             <Feather name="corner-up-right" size={20} color="#f4f4f5" />
-             <Text style={styles.contextMenuItemText}>Forward</Text>
-           </TouchableOpacity>
            {!isOwn && (
              <TouchableOpacity style={styles.contextMenuItem} onPress={onReport}>
                <Feather name="alert-triangle" size={20} color="#f59e0b" />
@@ -1472,6 +1562,23 @@ const styles = StyleSheet.create({
     borderTopColor: '#27272a',
     backgroundColor: '#09090b',
     gap: 8,
+  },
+  disabledBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#27272a',
+    backgroundColor: '#09090b',
+  },
+  disabledBannerText: {
+    color: '#a1a1aa',
+    fontSize: 13,
+    textAlign: 'center',
+    flexShrink: 1,
   },
   input: {
     flex: 1,

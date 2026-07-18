@@ -2,12 +2,14 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../api';
 import { ChatListItem, ChatParticipant } from '../types';
+import { getDraft, subscribeToDrafts } from '../utils/draftStore';
 
 export function useChatList(currentUserId: string | undefined, selectedChatId?: string) {
   const [chats, setChats] = useState<ChatListItem[]>([]);
   const [requests, setRequests] = useState<ChatListItem[]>([]);
   const [pinnedChatIds, setPinnedChatIds] = useState<string[]>([]);
   const [mutedChatIds, setMutedChatIds] = useState<string[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +68,39 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
   useEffect(() => {
     fetchChats();
   }, [fetchChats]);
+
+  // Load any locally-saved drafts for the chats currently in the list.
+  useEffect(() => {
+    if (chats.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        chats.map(async chat => [chat._id, await getDraft(chat._id)] as const)
+      );
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      entries.forEach(([chatId, text]) => {
+        if (text.trim()) next[chatId] = text.trim();
+      });
+      setDrafts(next);
+    })();
+    return () => { cancelled = true; };
+  }, [chats]);
+
+  // Live updates from the composer as the user types (or sends/clears a draft).
+  useEffect(() => {
+    return subscribeToDrafts((chatId, text) => {
+      setDrafts(prev => {
+        if (!text) {
+          if (!(chatId in prev)) return prev;
+          const next = { ...prev };
+          delete next[chatId];
+          return next;
+        }
+        return { ...prev, [chatId]: text };
+      });
+    });
+  }, []);
 
   // WebSocket real-time events
   useEffect(() => {
@@ -302,6 +337,7 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
     requests,
     pinnedChatIds,
     mutedChatIds,
+    drafts,
     filteredChats,
     loading,
     refreshing,

@@ -19,6 +19,7 @@ interface MessageBubbleProps {
   showSenderName?: boolean;
   showAvatar?: boolean;
   currentUserId?: string;
+  interactionDisabled?: boolean;
   onRetry?: () => void;
   onLongPress?: () => void;
   onSwipeReply?: () => void;
@@ -45,7 +46,7 @@ function getMessageContent(message: Message): string {
   return message.text || '';
 }
 
-export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, currentUserId, onRetry, onLongPress, onSwipeReply, onPressMedia, onToggleReaction, onOpenReactions, onCallAction }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, currentUserId, interactionDisabled, onRetry, onLongPress, onSwipeReply, onPressMedia, onToggleReaction, onOpenReactions, onCallAction }: MessageBubbleProps) => {
   const translateX = React.useRef(new Animated.Value(0)).current;
 
   const groupedReactions = React.useMemo(() => {
@@ -63,13 +64,15 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
 
   const isOwnRef = React.useRef(isOwn);
   const onSwipeReplyRef = React.useRef(onSwipeReply);
-  const isInertRef = React.useRef(message.mediaType === 'call' || !!message.isDeletedForEveryone);
+  const isInertRef = React.useRef(message.mediaType === 'call' || !!message.isDeletedForEveryone || !!interactionDisabled);
 
   React.useEffect(() => {
     isOwnRef.current = isOwn;
     onSwipeReplyRef.current = onSwipeReply;
-    isInertRef.current = message.mediaType === 'call' || !!message.isDeletedForEveryone;
-  }, [isOwn, onSwipeReply, message.mediaType, message.isDeletedForEveryone]);
+    // Swipe-to-reply is disabled for call/deleted messages and whenever the
+    // conversation is read-only (block / deleted account).
+    isInertRef.current = message.mediaType === 'call' || !!message.isDeletedForEveryone || !!interactionDisabled;
+  }, [isOwn, onSwipeReply, message.mediaType, message.isDeletedForEveryone, interactionDisabled]);
 
   const panResponder = React.useMemo(() =>
     PanResponder.create({

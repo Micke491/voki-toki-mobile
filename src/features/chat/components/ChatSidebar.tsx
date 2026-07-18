@@ -9,6 +9,8 @@ import { chatApi } from '../api';
 import { MediaViewer } from '../../../components/MediaViewer';
 import { ReportModal } from '../../../components/ReportModal';
 import { useMediaPicker } from '../hooks/useMediaPicker';
+import { AddParticipantModal } from './AddParticipantModal';
+import { UserProfileModal } from './UserProfileModal';
 
 interface ChatSidebarProps {
   isOpen: boolean;
@@ -23,7 +25,7 @@ export const ChatSidebar = ({
   onClose,
   chat,
   currentUserId,
-  onUpdateChat
+  onUpdateChat,
 }: ChatSidebarProps) => {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [sharedMedia, setSharedMedia] = useState<any[]>([]);
@@ -31,6 +33,8 @@ export const ChatSidebar = ({
   const [viewingMedia, setViewingMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [reportingGroup, setReportingGroup] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [viewingProfileUserId, setViewingProfileUserId] = useState<string | null>(null);
   const router = useRouter();
   const { pickFromLibrary } = useMediaPicker();
 
@@ -199,11 +203,16 @@ export const ChatSidebar = ({
             </View>
           )}
         </TouchableOpacity>
-        <View style={styles.participantInfo}>
+        <TouchableOpacity
+          style={styles.participantInfo}
+          activeOpacity={isMe ? 1 : 0.6}
+          disabled={isMe}
+          onPress={() => !isMe && setViewingProfileUserId(item._id)}
+        >
           <Text style={styles.participantName}>{isMe ? 'You' : item.username}</Text>
           {isUserAdmin && <Text style={styles.adminBadge}>Admin</Text>}
-        </View>
-        
+        </TouchableOpacity>
+
         {!isMe && isAdmin && (
           <View style={styles.actionButtons}>
              {loadingAction === `admin_${item._id}` ? (
@@ -281,11 +290,26 @@ export const ChatSidebar = ({
                 </View>
                 <Text style={styles.titleText}>{displayName}</Text>
                 <Text style={styles.subtitleText}>{isGroup ? `${chat.participants.length} participants` : 'User'}</Text>
+                {!isGroup && otherParticipant && (
+                  <TouchableOpacity
+                    style={styles.viewProfileBtn}
+                    onPress={() => setViewingProfileUserId(otherParticipant._id)}
+                  >
+                    <Feather name="user" size={16} color="#3b82f6" />
+                    <Text style={styles.viewProfileText}>View Full Profile</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               {isGroup && (
                 <View style={styles.participantsSection}>
-                  <Text style={styles.sectionTitle}>Participants</Text>
+                  <View style={styles.participantsHeaderRow}>
+                    <Text style={styles.sectionTitle}>Participants</Text>
+                    <TouchableOpacity style={styles.addParticipantBtn} onPress={() => setShowAddModal(true)}>
+                      <Feather name="user-plus" size={16} color="#3b82f6" />
+                      <Text style={styles.addParticipantText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
                   {chat.participants.map((item) => (
                     <React.Fragment key={item._id}>
                       {renderParticipant({ item })}
@@ -360,6 +384,7 @@ export const ChatSidebar = ({
                   <Text style={styles.emptyMediaText}>No media or links shared yet</Text>
                 </View>
               )}
+
               <View style={styles.actionsSection}>
                  {isGroup && (
                    <TouchableOpacity
@@ -420,6 +445,20 @@ export const ChatSidebar = ({
         targetId={chat._id}
         targetType="group"
         targetName={displayName}
+      />
+      {isGroup && (
+        <AddParticipantModal
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          chatId={chat._id}
+          existingParticipantIds={chat.participants.map(p => p._id)}
+          currentUserId={currentUserId}
+        />
+      )}
+      <UserProfileModal
+        isOpen={!!viewingProfileUserId}
+        onClose={() => setViewingProfileUserId(null)}
+        userId={viewingProfileUserId}
       />
     </Modal>
   );
@@ -526,6 +565,43 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     paddingHorizontal: 16,
     marginBottom: 8,
+  },
+  participantsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 12,
+  },
+  addParticipantBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(37,99,235,0.12)',
+  },
+  addParticipantText: {
+    color: '#3b82f6',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  viewProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(37,99,235,0.3)',
+    backgroundColor: 'rgba(37,99,235,0.1)',
+  },
+  viewProfileText: {
+    color: '#3b82f6',
+    fontSize: 14,
+    fontWeight: '600',
   },
   participantRow: {
     flexDirection: 'row',

@@ -85,6 +85,7 @@ export const ChatListScreen = () => {
     requests,
     pinnedChatIds,
     mutedChatIds,
+    drafts,
     filteredChats,
     loading,
     refreshing,
@@ -131,6 +132,8 @@ export const ChatListScreen = () => {
     const senderPrefix = item.isGroupChat && item.lastMessage?.sender && !item.lastMessage.isSystemMessage
       ? `${item.lastMessage.sender.username}: `
       : '';
+    // An in-progress draft always takes priority over the last-message preview.
+    const draftText = drafts[item._id];
 
     return (
       <TouchableOpacity
@@ -174,8 +177,15 @@ export const ChatListScreen = () => {
             </Text>
           </View>
           <View style={styles.chatBottomRow}>
-            <Text style={[styles.chatPreview, unread > 0 && styles.chatPreviewUnread]} numberOfLines={1}>
-              {senderPrefix}{preview}
+            <Text style={[styles.chatPreview, unread > 0 && !draftText && styles.chatPreviewUnread]} numberOfLines={1}>
+              {draftText ? (
+                <>
+                  <Text style={styles.draftLabel}>Draft: </Text>
+                  {draftText}
+                </>
+              ) : (
+                `${senderPrefix}${preview}`
+              )}
             </Text>
             {unread > 0 && (
               <View style={styles.unreadBadge}>
@@ -196,7 +206,7 @@ export const ChatListScreen = () => {
         </View>
       </TouchableOpacity>
     );
-  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, activeTab, handleAcceptRequest, handleRejectRequest]);
+  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest]);
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -664,6 +674,10 @@ const styles = StyleSheet.create({
   chatPreviewUnread: {
     color: '#a1a1aa',
     fontWeight: '500',
+  },
+  draftLabel: {
+    color: '#ef4444',
+    fontWeight: '700',
   },
   unreadBadge: {
     backgroundColor: '#2563eb',
