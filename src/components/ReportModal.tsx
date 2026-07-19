@@ -7,7 +7,7 @@ interface ReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   targetId: string;
-  targetType: 'user' | 'group' | 'message';
+  targetType: 'user' | 'group' | 'message' | 'story';
   targetName?: string;
 }
 

@@ -4,7 +4,7 @@ import { Feather } from '@expo/vector-icons';
 import { Message } from '../types';
 import { formatMessageTime } from '../utils/format';
 import { Image, Animated, PanResponder, Modal, TouchableWithoutFeedback, ActivityIndicator } from 'react-native';
-import { Audio } from 'expo-av';
+import { Audio, Video, ResizeMode } from 'expo-av';
 import { LinkPreview } from '../../../components/LinkPreview';
 
 const urlRegex = /(https?:\/\/[^\s]+)/;
@@ -27,6 +27,8 @@ interface MessageBubbleProps {
   onToggleReaction?: (emoji: string) => void;
   onOpenReactions?: () => void;
   onCallAction?: (type: 'voice' | 'video') => void;
+  recipientUsername?: string;
+  onViewStory?: (storyId: string) => void;
 }
 
 function getMessageContent(message: Message): string {
@@ -46,7 +48,7 @@ function getMessageContent(message: Message): string {
   return message.text || '';
 }
 
-export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, currentUserId, interactionDisabled, onRetry, onLongPress, onSwipeReply, onPressMedia, onToggleReaction, onOpenReactions, onCallAction }: MessageBubbleProps) => {
+export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, currentUserId, interactionDisabled, onRetry, onLongPress, onSwipeReply, onPressMedia, onToggleReaction, onOpenReactions, onCallAction, recipientUsername, onViewStory }: MessageBubbleProps) => {
   const translateX = React.useRef(new Animated.Value(0)).current;
 
   const groupedReactions = React.useMemo(() => {
@@ -122,6 +124,11 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
   const isMediaOnly = hasMedia && !message.text?.trim() && (message.mediaType === 'image' || message.mediaType === 'video' || message.mediaType === 'gif' || message.mediaType === 'sticker');
   const isCallMessage = hasMedia && message.mediaType === 'call';
   const isInert = isCallMessage || isDeleted;
+  const isStoryReply = !!message.storyId && !isDeleted;
+  const isStoryExpired = !!(
+    message.storyExpired ||
+    (message.storyExpiresAt && new Date(message.storyExpiresAt).getTime() < Date.now())
+  );
 
   const showLeftAvatar = !isOwn && showAvatar;
 
@@ -155,6 +162,7 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
           isOwn ? styles.bubbleOwn : styles.bubbleOther,
           (isMediaOnly || isCallMessage) && styles.bubbleMediaOnly,
           isDeleted && styles.bubbleDeleted,
+          isStoryReply && styles.bubbleStoryReply,
         ]}
         onLongPress={isInert ? undefined : onLongPress}
         activeOpacity={isInert ? 1 : 0.8}
@@ -166,10 +174,63 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
              <Text style={styles.replyText} numberOfLines={2}>{getMessageContent(message.replyTo)}</Text>
           </View>
         )}
-        {showSenderName && !isOwn && message.sender?.username && (
+        {showSenderName && !isOwn && message.sender?.username && !isStoryReply && (
           <Text style={styles.senderName}>{message.sender.username}</Text>
         )}
-        {hasMedia && (message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker') && message.mediaUrl && (
+        {isStoryReply && (
+          <View>
+            {/* Header line saying who replied to whose story, like the web card */}
+            <View style={[styles.storyReplyHeader, isOwn ? styles.storyReplyHeaderOwn : styles.storyReplyHeaderOther]}>
+              <View style={[styles.storyReplyBar, { backgroundColor: isOwn ? 'rgba(255,255,255,0.5)' : '#71717a' }]} />
+              <Text
+                style={[styles.storyReplyHeaderText, isOwn && { color: 'rgba(255,255,255,0.9)' }]}
+                numberOfLines={1}
+              >
+                {isOwn
+                  ? `You replied to ${recipientUsername ? `${recipientUsername}'s` : 'their'} story`
+                  : `${message.sender?.username || 'They'} replied to your story`}
+              </Text>
+            </View>
+
+            {/* Story media, 9:16 like the web */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={styles.storyReplyMedia}
+              onPress={() => {
+                if (!isStoryExpired && message.storyId) onViewStory?.(message.storyId);
+              }}
+              onLongPress={onLongPress}
+            >
+              {isStoryExpired ? (
+                <View style={styles.storyExpired}>
+                  <Feather name="clock" size={26} color="rgba(255,255,255,0.7)" />
+                  <Text style={styles.storyExpiredText}>This story is expired</Text>
+                </View>
+              ) : message.storyMediaType === 'video' && message.storyMediaUrl ? (
+                <>
+                  <Video
+                    source={{ uri: message.storyMediaUrl }}
+                    style={styles.storyReplyMediaFill}
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={false}
+                    isMuted
+                  />
+                  <View style={styles.playOverlay}>
+                    <Feather name="play" size={26} color="#fff" />
+                  </View>
+                </>
+              ) : (
+                <Image source={{ uri: message.storyMediaUrl }} style={styles.storyReplyMediaFill} resizeMode="cover" />
+              )}
+            </TouchableOpacity>
+
+            {/* The reply text under the story media */}
+            {message.text ? (
+              <Text style={[styles.text, isOwn && styles.textOwn, styles.storyReplyText]}>{message.text}</Text>
+            ) : null}
+          </View>
+        )}
+        {!isStoryReply && hasMedia && (message.mediaType === 'image' || message.mediaType === 'gif' || message.mediaType === 'sticker') && message.mediaUrl && (
           <TouchableOpacity activeOpacity={0.9} onPress={() => onPressMedia?.(message.mediaUrl!, 'image')} onLongPress={onLongPress}>
             <Image source={{ uri: message.mediaUrl }} style={[styles.mediaImage, isMediaOnly && styles.mediaImageFull, message.mediaType === 'gif' && styles.mediaImageGif, message.mediaType === 'sticker' && styles.mediaImageSticker]} resizeMode={message.mediaType === 'sticker' ? 'contain' : 'cover'} />
             {(message.mediaType === 'gif' || message.mediaType === 'sticker') && (
@@ -207,7 +268,7 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
         {hasMedia && message.mediaType !== 'call' && message.text ? (
           <Text style={[styles.text, isOwn && styles.textOwn, { marginTop: 6 }, isMediaOnly && { marginHorizontal: 12, marginBottom: 8 }]}>{message.text}</Text>
         ) : null}
-        {!hasMedia && (
+        {!hasMedia && !isStoryReply && (
           <>
             <Text style={[styles.text, isOwn && styles.textOwn, message.isDeletedForEveryone && styles.deletedText]}>
               {content}
@@ -217,7 +278,7 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
             )}
           </>
         )}
-        <View style={[styles.metaRow, isMediaOnly && styles.metaRowOverlay]}>
+        <View style={[styles.metaRow, isMediaOnly && styles.metaRowOverlay, isStoryReply && styles.metaRowStory]}>
           {message.isPinned && (
             <Feather name="map-pin" size={10} color={isOwn ? "#93c5fd" : "#71717a"} style={{ marginRight: 4 }} />
           )}
@@ -729,6 +790,65 @@ const styles = StyleSheet.create({
   },
   bubbleDeleted: {
     opacity: 0.6,
+  },
+  bubbleStoryReply: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    overflow: 'hidden',
+    width: 210,
+  },
+  storyReplyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  storyReplyHeaderOwn: {
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  storyReplyHeaderOther: {
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  storyReplyBar: {
+    width: 3,
+    height: 12,
+    borderRadius: 2,
+  },
+  storyReplyHeaderText: {
+    color: '#a1a1aa',
+    fontSize: 11.5,
+    fontWeight: '600',
+    flex: 1,
+  },
+  storyReplyMedia: {
+    width: '100%',
+    aspectRatio: 9 / 16,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  storyReplyMediaFill: {
+    width: '100%',
+    height: '100%',
+  },
+  storyExpired: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  storyExpiredText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  storyReplyText: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  metaRowStory: {
+    paddingHorizontal: 12,
+    paddingBottom: 8,
   },
   senderName: {
     color: '#60a5fa',

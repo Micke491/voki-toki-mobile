@@ -31,7 +31,7 @@ export function useStories(currentUserId?: string) {
     wsClient.connect();
     const channel = wsClient.subscribe(`user-${currentUserId}`);
 
-    channel.bind('story-viewed', (data: { storyId: string, viewedBy: string, viewedAt?: string, user?: { username: string, avatar?: string } }) => {
+    const onStoryViewed = (data: { storyId: string, viewedBy: string, viewedAt?: string, user?: { username: string, avatar?: string } }) => {
       setStoryGroups(prev => prev.map(storyGroup => ({
         ...storyGroup,
         stories: storyGroup.stories.map(s => {
@@ -61,13 +61,13 @@ export function useStories(currentUserId?: string) {
           return s;
         })
       })));
-    });
+    };
 
-    channel.bind('story-new', () => {
+    const onStoryNew = () => {
       fetchStories();
-    });
+    };
 
-    channel.bind('story-deleted', (data: { storyId: string, userId: string }) => {
+    const onStoryDeleted = (data: { storyId: string, userId: string }) => {
       setStoryGroups(prev => prev.map(storyGroup => {
         if (storyGroup.user._id === data.userId) {
           return {
@@ -77,12 +77,19 @@ export function useStories(currentUserId?: string) {
         }
         return storyGroup;
       }).filter(storyGroup => storyGroup.stories.length > 0));
-    });
+    };
 
+    channel.bind('story-viewed', onStoryViewed);
+    channel.bind('story-new', onStoryNew);
+    channel.bind('story-deleted', onStoryDeleted);
+
+    // Unbind only this hook instance's handlers: the hook is mounted on
+    // several screens at once (chat list, chat window, profile) and a bare
+    // unbind(event) would wipe the other screens' listeners too.
     return () => {
-      channel.unbind('story-viewed');
-      channel.unbind('story-new');
-      channel.unbind('story-deleted');
+      channel.unbind('story-viewed', onStoryViewed);
+      channel.unbind('story-new', onStoryNew);
+      channel.unbind('story-deleted', onStoryDeleted);
     };
   }, [currentUserId, fetchStories]);
 
@@ -101,5 +108,20 @@ export function useStories(currentUserId?: string) {
     }
   }, []);
 
-  return { storyGroups, loading, error, fetchStories, markViewed };
+  const deleteStory = useCallback(async (storyId: string) => {
+    await storyApi.deleteMyStory(storyId);
+    setStoryGroups(prev =>
+      prev
+        .map(g => ({ ...g, stories: g.stories.filter(s => s._id !== storyId) }))
+        .filter(g => g.stories.length > 0)
+    );
+  }, []);
+
+  const hasUnviewedStories = useCallback((group: StoryGroup) => {
+    return group.stories.some(
+      s => !s.viewed && !(s.viewedBy || []).some(v => v.userId === currentUserId)
+    );
+  }, [currentUserId]);
+
+  return { storyGroups, loading, error, fetchStories, markViewed, deleteStory, hasUnviewedStories };
 }

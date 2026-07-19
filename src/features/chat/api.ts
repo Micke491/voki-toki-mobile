@@ -54,6 +54,11 @@ export const chatApi = {
     mediaType?: string;
     mediaPublicId?: string;
     isForwarded?: boolean;
+    storyId?: string;
+    storyMediaUrl?: string;
+    storyMediaType?: 'image' | 'video';
+    storyCaption?: string;
+    storyExpiresAt?: string;
   }): Promise<{ message: Message }> => {
     const response = await apiClient.post('/chat/message', payload);
     return response.data;

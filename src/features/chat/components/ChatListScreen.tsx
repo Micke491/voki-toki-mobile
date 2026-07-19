@@ -19,6 +19,10 @@ import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
 import { NewChatModal } from './NewChatModal';
 import { StoryBar } from '../../story/components/StoryBar';
+import { StoryRing } from '../../story/components/StoryRing';
+import { StoryViewer } from '../../story/components/StoryViewer';
+import { StoryComposer } from '../../story/components/StoryComposer';
+import { useStories } from '../../story/hooks/useStories';
 import { ConfirmModal } from '../../../components/ConfirmModal';
 import { ReportModal } from '../../../components/ReportModal';
 
@@ -53,10 +57,17 @@ function formatTime(dateString: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function getMessagePreview(chat: ChatListItem): string {
+function getMessagePreview(chat: ChatListItem, chatName: string, currentUserId?: string): string {
   if (!chat.lastMessage) return 'No messages yet';
   if (chat.lastMessage.isDeletedForEveryone) return 'Message deleted';
   if (chat.lastMessage.isSystemMessage) return chat.lastMessage.text || '';
+  if (chat.lastMessage.storyId || chat.lastMessage.storyMediaUrl) {
+    // Same wording as the web chat list for story replies.
+    const amISender = chat.lastMessage.sender?._id === currentUserId;
+    return amISender
+      ? `You replied to ${chatName}'s highlight`
+      : `${chat.lastMessage.sender?.username || chatName} replied to your highlight`;
+  }
   if (chat.lastMessage.mediaType) {
     const icons: Record<string, string> = {
       image: 'Photo',
@@ -68,7 +79,6 @@ function getMessagePreview(chat: ChatListItem): string {
     };
     return icons[chat.lastMessage.mediaType] || 'Attachment';
   }
-  if (chat.lastMessage.storyId) return 'Story reply';
   return chat.lastMessage.text || '';
 }
 
@@ -79,6 +89,10 @@ export const ChatListScreen = () => {
   const [activeTab, setActiveTab] = useState<'chats' | 'requests'>('chats');
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
   const [reportingGroup, setReportingGroup] = useState<{ groupId: string; groupName: string } | null>(null);
+
+  const { storyGroups, fetchStories, markViewed, deleteStory, hasUnviewedStories } = useStories(user?._id);
+  const [viewingGroupIndex, setViewingGroupIndex] = useState<number | null>(null);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
 
   const {
     chats,
@@ -126,7 +140,7 @@ export const ChatListScreen = () => {
     const avatarLetter = chatName.charAt(0).toUpperCase();
     const avatarColor = getAvatarColor(item._id);
     const avatarUrl = item.isGroupChat ? item.avatar : otherUser.avatar;
-    const preview = getMessagePreview(item);
+    const preview = getMessagePreview(item, chatName, user?._id);
     const time = item.lastMessage?.createdAt ? formatTime(item.lastMessage.createdAt) : formatTime(item.updatedAt);
     const unread = item.unreadCount || 0;
     const senderPrefix = item.isGroupChat && item.lastMessage?.sender && !item.lastMessage.isSystemMessage
@@ -142,20 +156,36 @@ export const ChatListScreen = () => {
         onLongPress={() => setSelectedChatForMenu(item)}
         activeOpacity={0.6}
       >
-        {/* Avatar */}
+        {/* Avatar (1:1 chats get a story ring like the web app) */}
         <View style={styles.avatarWrap}>
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor }]}>
-              <Text style={styles.avatarText}>{avatarLetter}</Text>
-            </View>
-          )}
-          {item.isGroupChat && (
-            <View style={styles.groupBadge}>
-              <Feather name="users" size={8} color="#fff" />
-            </View>
-          )}
+          {item.isGroupChat ? (
+            <>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: avatarColor }]}>
+                  <Text style={styles.avatarText}>{avatarLetter}</Text>
+                </View>
+              )}
+              <View style={styles.groupBadge}>
+                <Feather name="users" size={8} color="#fff" />
+              </View>
+            </>
+          ) : (() => {
+            const groupIndex = storyGroups.findIndex(g => g.user._id === otherUser._id);
+            const storyGroup = groupIndex >= 0 ? storyGroups[groupIndex] : undefined;
+            const hasStories = !!storyGroup && storyGroup.stories.length > 0;
+            return (
+              <StoryRing
+                avatarUrl={otherUser.avatar}
+                username={otherUser.username || chatName}
+                hasStory={hasStories}
+                hasUnviewedStory={hasStories && hasUnviewedStories(storyGroup!)}
+                size={52}
+                onPress={hasStories ? () => setViewingGroupIndex(groupIndex) : undefined}
+              />
+            );
+          })()}
         </View>
 
         {/* Content */}
@@ -206,7 +236,7 @@ export const ChatListScreen = () => {
         </View>
       </TouchableOpacity>
     );
-  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest]);
+  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest, storyGroups, hasUnviewedStories, user?._id]);
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -273,7 +303,13 @@ export const ChatListScreen = () => {
         </TouchableOpacity>
       </View>
 
-      <StoryBar />  
+      <StoryBar
+        currentUser={user ? { _id: user._id, username: user.username, avatar: user.avatar } : null}
+        storyGroups={storyGroups}
+        hasUnviewedStories={hasUnviewedStories}
+        onOpenComposer={() => setShowStoryComposer(true)}
+        onOpenGroup={setViewingGroupIndex}
+      />
 
       {/* Error */}
       {error && (
@@ -489,6 +525,25 @@ export const ChatListScreen = () => {
         targetId={reportingGroup?.groupId || ''}
         targetType="group"
         targetName={reportingGroup?.groupName}
+      />
+
+      {/* Story Viewer */}
+      {viewingGroupIndex !== null && storyGroups[viewingGroupIndex] && (
+        <StoryViewer
+          groups={storyGroups}
+          initialGroupIndex={viewingGroupIndex}
+          currentUser={user ? { _id: user._id, username: user.username, avatar: user.avatar } : null}
+          onClose={() => setViewingGroupIndex(null)}
+          onViewed={markViewed}
+          onDeleteStory={deleteStory}
+        />
+      )}
+
+      {/* Camera-first Story Composer */}
+      <StoryComposer
+        visible={showStoryComposer}
+        onClose={() => setShowStoryComposer(false)}
+        onPosted={fetchStories}
       />
     </View>
   );

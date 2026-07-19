@@ -15,6 +15,7 @@ import {
   BackHandler,
   Animated,
   Image,
+  Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -39,6 +40,9 @@ import { ReportModal } from '../../../components/ReportModal';
 import EmojiPicker from 'rn-emoji-keyboard';
 import { BlockStatus } from '../types';
 import { getDraft, setDraft } from '../utils/draftStore';
+import { useStories } from '../../story/hooks/useStories';
+import { StoryRing } from '../../story/components/StoryRing';
+import { StoryViewer } from '../../story/components/StoryViewer';
 
 const emojiPickerTheme = {
   backdrop: 'rgba(0,0,0,0.6)',
@@ -179,6 +183,27 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const chatAvatarUrl = isGroup ? chat?.avatar : otherParticipant?.avatar;
   const isLoading = chatLoading || messagesLoading;
   const error = chatError || messagesError;
+
+  // Stories: powers the ring around the header avatar and story-reply cards.
+  const { storyGroups, markViewed: markStoryViewed, deleteStory, hasUnviewedStories } = useStories(currentUserId);
+  const [viewingStory, setViewingStory] = useState<{ groupIndex: number; storyIndex: number } | null>(null);
+
+  const recipientGroupIndex = useMemo(
+    () => (isGroup || !otherParticipant ? -1 : storyGroups.findIndex(g => g.user._id === otherParticipant._id)),
+    [storyGroups, isGroup, otherParticipant]
+  );
+  const recipientGroup = recipientGroupIndex >= 0 ? storyGroups[recipientGroupIndex] : undefined;
+
+  const handleViewStory = useCallback((storyId: string) => {
+    for (let g = 0; g < storyGroups.length; g++) {
+      const idx = storyGroups[g].stories.findIndex(s => s._id === storyId);
+      if (idx >= 0) {
+        setViewingStory({ groupIndex: g, storyIndex: idx });
+        return;
+      }
+    }
+    Alert.alert('Story unavailable', 'This story could not be found or has expired.');
+  }, [storyGroups]);
 
   // A deleted account surfaces as a 1:1 chat whose remaining participant has no
   // usable username (the backend strips it), mirroring the web app.
@@ -602,9 +627,11 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         onToggleReaction={(emoji) => handleToggleReaction(item.message, emoji)}
         onOpenReactions={() => setReactionsDetailMessage(item.message)}
         onCallAction={handleCallAction}
+        recipientUsername={!isGroup ? otherParticipant?.username : undefined}
+        onViewStory={handleViewStory}
       />
     );
-  }, [currentUserId, isGroup, retryMessage, handleToggleReaction, handleCallAction, interactionDisabled]);
+  }, [currentUserId, isGroup, retryMessage, handleToggleReaction, handleCallAction, interactionDisabled, otherParticipant?.username, handleViewStory]);
 
   const handleUnpinTop = useCallback(async () => {
     if (pinnedMessages.length === 0) return;
@@ -663,7 +690,20 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           <Feather name="arrow-left" size={24} color="#f4f4f5" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.headerAvatarWrap} onPress={() => setShowSidebar(true)}>
-          {chatAvatarUrl ? (
+          {!isGroup ? (
+            <StoryRing
+              avatarUrl={otherParticipant?.avatar}
+              username={otherParticipant?.username || displayName}
+              hasStory={!!recipientGroup}
+              hasUnviewedStory={!!recipientGroup && hasUnviewedStories(recipientGroup)}
+              size={40}
+              onPress={
+                recipientGroup
+                  ? () => setViewingStory({ groupIndex: recipientGroupIndex, storyIndex: 0 })
+                  : undefined
+              }
+            />
+          ) : chatAvatarUrl ? (
             <Image source={{ uri: chatAvatarUrl }} style={styles.headerAvatar} />
           ) : (
             <View style={[styles.headerAvatar, { backgroundColor: avatarColor, justifyContent: 'center', alignItems: 'center' }]}>
@@ -1028,6 +1068,19 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
         targetId={reportingMessage?._id || ''}
         targetType="message"
       />
+
+      {/* Story Viewer (header ring / story-reply cards) */}
+      {viewingStory && storyGroups[viewingStory.groupIndex] && (
+        <StoryViewer
+          groups={storyGroups}
+          initialGroupIndex={viewingStory.groupIndex}
+          initialStoryIndex={viewingStory.storyIndex}
+          currentUser={user ? { _id: user._id, username: user.username, avatar: user.avatar } : null}
+          onClose={() => setViewingStory(null)}
+          onViewed={markStoryViewed}
+          onDeleteStory={deleteStory}
+        />
+      )}
 
       <EmojiPicker
         open={!!emojiPickerMessage}

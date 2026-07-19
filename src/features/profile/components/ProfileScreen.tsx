@@ -1,9 +1,12 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Image, RefreshControl } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { useProfile } from '../hooks/useProfile';
+import { useStories } from '../../story/hooks/useStories';
+import { StoryRing } from '../../story/components/StoryRing';
+import { StoryViewer } from '../../story/components/StoryViewer';
 
 export function ProfileScreen() {
   const { user, signOut } = useAuthContext();
@@ -12,6 +15,12 @@ export function ProfileScreen() {
 
   // Combine auth user and profile user
   const displayUser = profile?.user || user;
+
+  // Story ring around the profile avatar, same as the web profile view.
+  const { storyGroups, markViewed, deleteStory, hasUnviewedStories } = useStories(user?._id);
+  const myGroupIndex = storyGroups.findIndex(g => g.user._id === user?._id);
+  const myGroup = myGroupIndex >= 0 ? storyGroups[myGroupIndex] : undefined;
+  const [viewingMyStories, setViewingMyStories] = useState(false);
 
   if (loading && !profile) {
     return (
@@ -39,20 +48,19 @@ export function ProfileScreen() {
         </View>
 
         <View style={styles.avatarSection}>
-          <TouchableOpacity onPress={() => router.push('/profile/edit')} style={styles.avatarContainer}>
-            {displayUser?.avatar ? (
-              <Image source={{ uri: displayUser.avatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                <Text style={styles.avatarText}>
-                  {(displayUser?.username || '?').charAt(0).toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <View style={styles.editBadge}>
+          <View style={styles.avatarContainer}>
+            <StoryRing
+              avatarUrl={displayUser?.avatar}
+              username={displayUser?.username || '?'}
+              hasStory={!!myGroup}
+              hasUnviewedStory={!!myGroup && hasUnviewedStories(myGroup)}
+              size={100}
+              onPress={() => (myGroup ? setViewingMyStories(true) : router.push('/profile/edit'))}
+            />
+            <TouchableOpacity style={styles.editBadge} onPress={() => router.push('/profile/edit')}>
               <Feather name="camera" size={14} color="#fff" />
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.name}>{displayUser?.name || displayUser?.username}</Text>
           <Text style={styles.username}>@{displayUser?.username}</Text>
@@ -119,6 +127,17 @@ export function ProfileScreen() {
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+
+      {viewingMyStories && myGroup && (
+        <StoryViewer
+          groups={[myGroup]}
+          initialGroupIndex={0}
+          currentUser={user ? { _id: user._id, username: user.username, avatar: user.avatar } : null}
+          onClose={() => setViewingMyStories(false)}
+          onViewed={markViewed}
+          onDeleteStory={deleteStory}
+        />
+      )}
     </ScrollView>
   );
 }
