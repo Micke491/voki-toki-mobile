@@ -24,12 +24,11 @@ export const storyApi = {
     onProgress?: (percent: number) => void
   ): Promise<{ success: boolean; story: any }> => {
     const formData = new FormData();
-    // @ts-ignore
     formData.append('file', {
       uri: fileUri,
       name: fileName,
       type: mimeType,
-    });
+    } as unknown as Blob);
     if (caption) formData.append('caption', caption);
 
     const response = await apiClient.post('/stories', formData, {
