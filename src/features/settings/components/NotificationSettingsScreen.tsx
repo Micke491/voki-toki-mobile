@@ -8,7 +8,8 @@ import { useAuthContext } from '../../auth/context/AuthContext';
 import { settingsApi } from '../api';
 import { chatApi } from '../../chat/api';
 import { ChatListItem } from '../../chat/types';
-import { SettingsHeader, FeedbackToast, Feedback, SectionLabel } from './ui';
+import { getNotificationsEnabled, setNotificationsEnabled } from '../../../utils/storage';
+import { SettingsHeader, FeedbackToast, Feedback, SectionLabel, Card, ToggleRow } from './ui';
 
 interface MutedChatRow {
   chatId: string;
@@ -37,6 +38,20 @@ export function NotificationSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [unmutingId, setUnmutingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [notifEnabled, setNotifEnabled] = useState(true);
+
+  useEffect(() => {
+    getNotificationsEnabled().then(setNotifEnabled);
+  }, []);
+
+  const toggleNotifications = async (value: boolean) => {
+    setNotifEnabled(value);
+    await setNotificationsEnabled(value);
+    setFeedback({
+      type: 'success',
+      message: value ? 'Notifications enabled' : 'Notifications turned off',
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -138,6 +153,19 @@ export function NotificationSettingsScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={
             <View style={styles.headerBlock}>
+              <SectionLabel>Alerts</SectionLabel>
+              <Card style={{ marginBottom: 22 }}>
+                <ToggleRow
+                  icon={notifEnabled ? 'bell' : 'bell-off'}
+                  tint="#f59e0b"
+                  title="Notifications"
+                  subtitle={notifEnabled
+                    ? 'You will be alerted about new messages and incoming calls on this device'
+                    : 'Turned off — this device will stay silent for messages and calls'}
+                  value={notifEnabled}
+                  onValueChange={toggleNotifications}
+                />
+              </Card>
               <SectionLabel>Muted Chats Manager</SectionLabel>
               <Text style={[styles.headerHint, { color: colors.textTertiary }]}>
                 Muted conversations won't alert you about new messages. Mute a chat by

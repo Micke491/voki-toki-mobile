@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useState, useEffect, PropsWithChildren } from 'react';
+import { router } from 'expo-router';
 import { User } from '../../../types';
 import { getToken, saveToken, removeToken } from '../../../utils/storage';
 import { authApi } from '../api';
@@ -42,6 +43,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   const signOut = async () => {
     await removeToken();
     setUser(null);
+    router.replace('/auth/login');
   };
 
   const updateUser = useCallback((userData: User) => {

@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { getAvatarColor } from '../../chat/utils/format';
+import { getNotificationsEnabled } from '../../../utils/storage';
 
 interface IncomingCallOverlayProps {
   callData: {
@@ -32,8 +33,14 @@ export const IncomingCallOverlay = ({ callData, onAccept, onDecline }: IncomingC
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Vibration.vibrate([800, 1200], true);
-    return () => Vibration.cancel();
+    let cancelled = false;
+    getNotificationsEnabled().then(enabled => {
+      if (enabled && !cancelled) Vibration.vibrate([800, 1200], true);
+    });
+    return () => {
+      cancelled = true;
+      Vibration.cancel();
+    };
   }, []);
 
   useEffect(() => {

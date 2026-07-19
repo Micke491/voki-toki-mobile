@@ -64,21 +64,6 @@ export function SettingsScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Account */}
-        <View style={styles.section}>
-          <SectionLabel>Account</SectionLabel>
-          <Card>
-            <Row
-              icon="user"
-              tint="#3b82f6"
-              title="Profile Information"
-              subtitle="Avatar, name, username, bio, gender, location, links"
-              onPress={() => router.push('/profile/edit')}
-              chevron
-            />
-          </Card>
-        </View>
-
         {/* Preferences */}
         <View style={styles.section}>
           <SectionLabel>Preferences</SectionLabel>
