@@ -74,6 +74,13 @@ export const RegisterForm = () => {
 
         <View style={styles.spacer} />
 
+        <Text style={styles.termsText}>
+          By creating an account, you agree to our{' '}
+          <Link href="/settings/terms" style={styles.termsLink}>Terms of Service</Link>
+          {' '}and{' '}
+          <Link href="/settings/privacy-policy" style={styles.termsLink}>Privacy Policy</Link>.
+        </Text>
+
         <Button title="Create Account" onPress={handleRegister} loading={loading} />
 
         <View style={styles.footer}>
@@ -96,6 +103,8 @@ const styles = StyleSheet.create({
   errorBox: { backgroundColor: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', borderWidth: 1, padding: 16, borderRadius: 12, marginBottom: 16 },
   errorText: { color: '#fca5a5', fontSize: 14 },
   spacer: { height: 16 },
+  termsText: { color: '#a1a1aa', fontSize: 12, lineHeight: 18, textAlign: 'center', marginBottom: 16 },
+  termsLink: { color: '#60a5fa', fontWeight: '700' },
   footer: { flexDirection: 'row', justifyContent: 'center', marginTop: 32 },
   footerText: { color: '#a1a1aa', fontSize: 14 },
   linkTextBold: { color: '#f4f4f5', fontWeight: 'bold', fontSize: 14 }

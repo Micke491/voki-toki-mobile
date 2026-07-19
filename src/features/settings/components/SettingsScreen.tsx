@@ -106,6 +106,48 @@ export function SettingsScreen() {
           </Card>
         </View>
 
+        {/* Help and legal */}
+        <View style={styles.section}>
+          <SectionLabel>Help & Legal</SectionLabel>
+          <Card>
+            <Row
+              icon="life-buoy"
+              tint="#10b981"
+              title="Help & Support"
+              subtitle="Frequently asked questions and guides"
+              onPress={() => router.push('/settings/help')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="file-text"
+              tint="#3b82f6"
+              title="Terms of Service"
+              subtitle="Rules for using VokiToki"
+              onPress={() => router.push('/settings/terms')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="shield"
+              tint="#6366f1"
+              title="Privacy Policy"
+              subtitle="How your information is handled"
+              onPress={() => router.push('/settings/privacy-policy')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="flag"
+              tint="#f59e0b"
+              title="Moderation Policy"
+              subtitle="How reports and account restrictions work"
+              onPress={() => router.push('/settings/moderation')}
+              chevron
+            />
+          </Card>
+        </View>
+
         {/* Session */}
         <View style={styles.section}>
           <SectionLabel>Session</SectionLabel>
