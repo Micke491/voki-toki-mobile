@@ -36,8 +36,6 @@ export const StoryRing = ({
   const outer = typeof size === 'number' ? size : SIZE_PRESETS[size];
   const ringWidth = outer >= 96 ? 3 : 2;
   const gapWidth = outer >= 96 ? 3 : 2;
-  // Without a story the ring and gap collapse so the avatar fills the full size,
-  // mirroring the web's !p-0 behavior.
   const inset = hasStory ? ringWidth + gapWidth : 0;
   const avatarSize = outer - inset * 2;
 
@@ -104,6 +102,7 @@ const styles = StyleSheet.create({
   center: {
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   gap: {
     backgroundColor: RING_GAP_BG,

@@ -681,8 +681,8 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      behavior="padding"
+      keyboardVerticalOffset={0}
     >
       {/* Header */}
       <View style={styles.header}>

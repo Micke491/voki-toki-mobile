@@ -4,6 +4,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   Modal,
   Image,
@@ -13,7 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { CameraView, CameraType, FlashMode, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { CameraView, CameraType, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Video, ResizeMode } from 'expo-av';
 import { useMediaPicker, PickedMedia } from '../../chat/hooks/useMediaPicker';
 import { useCreateStory } from '../hooks/useCreateStory';
@@ -37,7 +38,7 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
 
   const cameraRef = useRef<CameraView>(null);
   const [facing, setFacing] = useState<CameraType>('back');
-  const [flash, setFlash] = useState<FlashMode>('off');
+  const [torchOn, setTorchOn] = useState(false);
   const [mode, setMode] = useState<'photo' | 'video'>('photo');
   const [recording, setRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -51,10 +52,16 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
     setMode('photo');
     setRecording(false);
     setRecordSeconds(0);
+    setTorchOn(false);
     if (cameraPermission && !cameraPermission.granted) {
       requestCameraPermission();
     }
   }, [visible]);
+
+  useEffect(() => {
+    // Front cameras don't have a torch, so drop out of torch mode when flipping to it.
+    if (facing === 'front') setTorchOn(false);
+  }, [facing]);
 
   useEffect(() => {
     if (!recording) {
@@ -120,6 +127,17 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
       handleRecord();
     }
   }, [mode, handleTakePhoto, handleRecord]);
+
+  const lastTapRef = useRef(0);
+  const handleCameraPress = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      lastTapRef.current = 0;
+      if (!recording) setFacing(f => (f === 'back' ? 'front' : 'back'));
+    } else {
+      lastTapRef.current = now;
+    }
+  }, [recording]);
 
   const handleGallery = useCallback(async () => {
     const picked = await pickFromLibrary();
@@ -212,25 +230,27 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
         ) : cameraPermission?.granted ? (
           /* ---- Camera stage ---- */
           <View style={styles.flex}>
-            <CameraView
-              ref={cameraRef}
-              style={styles.flex}
-              facing={facing}
-              flash={flash}
-              mode={mode === 'video' ? 'video' : 'picture'}
-            />
+            <Pressable style={styles.flex} onPress={handleCameraPress}>
+              <CameraView
+                ref={cameraRef}
+                style={styles.flex}
+                facing={facing}
+                enableTorch={torchOn}
+                mode={mode === 'video' ? 'video' : 'picture'}
+              />
+            </Pressable>
 
             <View style={styles.cameraTopBar}>
               <TouchableOpacity style={styles.roundButton} onPress={onClose} disabled={recording}>
                 <Feather name="x" size={22} color="#fff" />
               </TouchableOpacity>
               <View style={styles.topRight}>
-                {mode === 'photo' && (
+                {facing === 'back' && (
                   <TouchableOpacity
                     style={styles.roundButton}
-                    onPress={() => setFlash(f => (f === 'off' ? 'on' : 'off'))}
+                    onPress={() => setTorchOn(t => !t)}
                   >
-                    <Feather name={flash === 'off' ? 'zap-off' : 'zap'} size={20} color="#fff" />
+                    <Feather name={torchOn ? 'zap' : 'zap-off'} size={20} color="#fff" />
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
