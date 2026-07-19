@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { authApi } from '../api';
 import { useAuthContext } from '../context/AuthContext';
+import { saveTrustedDeviceToken } from '../../../utils/storage';
 
 export const useLogin = () => {
   const router = useRouter();
@@ -56,6 +57,11 @@ export const useLogin = () => {
         rememberDevice: true,
         rememberMe: true,
       });
+
+      // This device won't be asked for a 2FA code again on future logins.
+      if (data.trusted_device_token) {
+        await saveTrustedDeviceToken(data.trusted_device_token);
+      }
 
       await signIn(data.token, data.user);
       router.replace('/tabs');

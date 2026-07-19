@@ -6,6 +6,7 @@ export interface LoginResponse {
   user: User;
   requires_2fa?: boolean;
   temp_token?: string;
+  trusted_device_token?: string;
 }
 
 export const authApi = {

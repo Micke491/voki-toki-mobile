@@ -2,6 +2,7 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TOKEN_KEY = 'vokitoki_auth_token';
+const TRUSTED_DEVICE_TOKEN_KEY = 'vokitoki_trusted_device_token';
 const NOTIFICATIONS_KEY = 'vokitoki_notifications_enabled';
 
 /** Device-level master switch for message/call alerts (defaults to on). */
@@ -44,5 +45,27 @@ export const removeToken = async () => {
     await SecureStore.deleteItemAsync(TOKEN_KEY);
   } catch (error) {
     console.error('Error removing token', error);
+  }
+};
+
+/**
+ * Long-lived per-device token that lets a 2FA-enabled account skip the email
+ * code on future logins from this device (server: X-Trusted-Device-Token).
+ * Persists across sign-out — trust is tied to the device, not the session.
+ */
+export const saveTrustedDeviceToken = async (token: string) => {
+  try {
+    await SecureStore.setItemAsync(TRUSTED_DEVICE_TOKEN_KEY, token);
+  } catch (error) {
+    console.error('Error saving trusted device token', error);
+  }
+};
+
+export const getTrustedDeviceToken = async () => {
+  try {
+    return await SecureStore.getItemAsync(TRUSTED_DEVICE_TOKEN_KEY);
+  } catch (error) {
+    console.error('Error getting trusted device token', error);
+    return null;
   }
 };

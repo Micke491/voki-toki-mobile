@@ -208,16 +208,28 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
       }));
     };
 
+    const onChatMuted = (data: { chatId: string }) => {
+      setMutedChatIds(prev => (prev.includes(data.chatId) ? prev : [...prev, data.chatId]));
+    };
+
+    const onChatUnmuted = (data: { chatId: string }) => {
+      setMutedChatIds(prev => prev.filter(id => id !== data.chatId));
+    };
+
     channel.bind('chat-update', onChatUpdate);
     channel.bind('chat-removed', onChatRemoved);
     channel.bind('chat-new', onChatNew);
     channel.bind('profile-updated', onProfileUpdate);
+    channel.bind('chat-muted', onChatMuted);
+    channel.bind('chat-unmuted', onChatUnmuted);
 
     return () => {
       channel.unbind('chat-update', onChatUpdate);
       channel.unbind('chat-removed', onChatRemoved);
       channel.unbind('chat-new', onChatNew);
       channel.unbind('profile-updated', onProfileUpdate);
+      channel.unbind('chat-muted', onChatMuted);
+      channel.unbind('chat-unmuted', onChatUnmuted);
     };
   }, [currentUserId, fetchChats]);
 

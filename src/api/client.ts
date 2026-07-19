@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
-import { getToken, removeToken } from '../utils/storage';
+import { getToken, removeToken, getTrustedDeviceToken } from '../utils/storage';
 import { router } from 'expo-router';
 
 const getBaseUrl = () => {
@@ -23,6 +23,14 @@ apiClient.interceptors.request.use(async (config) => {
   const token = await getToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Lets a 2FA-enabled account skip the email code on this device (server-checked
+  // only on /auth/login), so it's safe to attach whenever we have one.
+  if (config.url?.includes('/auth/login')) {
+    const trustedDeviceToken = await getTrustedDeviceToken();
+    if (trustedDeviceToken) {
+      config.headers['X-Trusted-Device-Token'] = trustedDeviceToken;
+    }
   }
   return config;
 });
