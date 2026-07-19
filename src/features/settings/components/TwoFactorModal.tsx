@@ -21,6 +21,15 @@ export function TwoFactorModal({ visible, onClose, isEnabling, onSuccess }: TwoF
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  React.useEffect(() => {
+    if (visible) {
+      setStep('request');
+      setCode('');
+      setPassword('');
+      setError(null);
+    }
+  }, [visible]);
+
   const handleRequest = async () => {
     try {
       setLoading(true);

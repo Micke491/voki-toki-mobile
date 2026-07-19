@@ -126,5 +126,8 @@ export interface ChatDetails {
 
 export interface WallpaperPreset {
   name: string;
+  /** Exact web CSS value stored on the account so wallpaper syncs across platforms. */
   value: string;
+  /** Gradient stops rendered natively with expo-linear-gradient. */
+  colors: [string, string, ...string[]];
 }

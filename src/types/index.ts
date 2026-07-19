@@ -3,6 +3,8 @@ export interface UserLink {
   url: string;
 }
 
+export type BotPersona = 'default' | 'coding' | 'coach' | 'sarcastic';
+
 export interface User {
   _id: string;
   username: string;
@@ -16,5 +18,10 @@ export interface User {
   readReceipts?: boolean;
   twoFactorEnabled?: boolean;
   theme?: string;
+  defaultWallpaper?: string;
+  autoPlayGifs?: boolean;
+  autoPlayVoice?: boolean;
+  storyPrivacy?: string;
+  botPersona?: BotPersona;
   createdAt?: string;
 }

@@ -1,252 +1,206 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
-import { settingsApi } from '../api';
-import { profileApi } from '../../profile/api';
-import { TwoFactorModal } from './TwoFactorModal';
+import { useTheme } from '../../theme/ThemeContext';
+import { SettingsHeader, SectionLabel, Card, Row, Divider } from './ui';
+
+const PERSONA_LABELS: Record<string, string> = {
+  default: 'Friendly Assistant',
+  coding: 'Expert Engineer',
+  coach: 'Life Coach',
+  sarcastic: 'Sarcastic Wit',
+};
 
 export function SettingsScreen() {
   const router = useRouter();
-  const { user, updateUser, signOut } = useAuthContext();
-  const [loading, setLoading] = useState(false);
-  
-  const [twoFaModalVisible, setTwoFaModalVisible] = useState(false);
-  const [isEnabling2Fa, setIsEnabling2Fa] = useState(true);
+  const { user, signOut } = useAuthContext();
+  const { colors, mode } = useTheme();
 
-  const handleToggle = async (key: string, currentValue: boolean | undefined) => {
-    if (!user) return;
-    try {
-      setLoading(true);
-      const newValue = !currentValue;
-      const res = await settingsApi.updatePreferences({ [key]: newValue });
-      updateUser(res.user);
-    } catch (err) {
-      console.error('Failed to update preference:', err);
-      Alert.alert('Error', 'Failed to update setting');
-    } finally {
-      setLoading(false);
-    }
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out on this device?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
+    ]);
   };
 
-  const handle2FAToggle = () => {
-    setIsEnabling2Fa(!user?.twoFactorEnabled);
-    setTwoFaModalVisible(true);
-  };
-
-  const handleDeleteAccount = () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await profileApi.deleteAccount();
-              signOut();
-            } catch (err) {
-              Alert.alert('Error', 'Failed to delete account');
-            }
-          }
-        }
-      ]
-    );
-  };
+  const avatarLetter = (user?.username || 'U').charAt(0).toUpperCase();
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
-          <Feather name="arrow-left" size={24} color="#f4f4f5" />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <SettingsHeader title="Settings" subtitle="Manage your preferences and account" />
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Profile card */}
+        <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/profile/edit')}>
+          <LinearGradient
+            colors={['#2563eb', '#7c3aed']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.profileCard}
+          >
+            <View style={styles.profileAvatarRing}>
+              {user?.avatar ? (
+                <Image source={{ uri: user.avatar }} style={styles.profileAvatar} />
+              ) : (
+                <View style={[styles.profileAvatar, styles.profileAvatarFallback]}>
+                  <Text style={styles.profileAvatarLetter}>{avatarLetter}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName} numberOfLines={1}>
+                {user?.name || user?.username || 'You'}
+              </Text>
+              <Text style={styles.profileHandle} numberOfLines={1}>@{user?.username}</Text>
+              <View style={styles.profileEditPill}>
+                <Feather name="edit-3" size={11} color="#fff" />
+                <Text style={styles.profileEditText}>Edit profile</Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={22} color="rgba(255,255,255,0.85)" />
+          </LinearGradient>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 40 }} />
-      </View>
 
-      <ScrollView style={styles.content}>
+        {/* Account */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Privacy</Text>
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="eye" size={20} color="#71717a" />
-                <Text style={styles.rowText}>Read Receipts</Text>
-              </View>
-              <Switch 
-                value={user?.readReceipts ?? true} 
-                onValueChange={() => handleToggle('readReceipts', user?.readReceipts)}
-                trackColor={{ false: '#3f3f46', true: '#2563eb' }}
-                disabled={loading}
-              />
-            </View>
-          </View>
+          <SectionLabel>Account</SectionLabel>
+          <Card>
+            <Row
+              icon="user"
+              tint="#3b82f6"
+              title="Profile Information"
+              subtitle="Avatar, name, username, bio, gender, location, links"
+              onPress={() => router.push('/profile/edit')}
+              chevron
+            />
+          </Card>
         </View>
 
+        {/* Preferences */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Security</Text>
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="shield" size={20} color="#71717a" />
-                <Text style={styles.rowText}>Two-Factor Authentication</Text>
-              </View>
-              <Switch 
-                value={user?.twoFactorEnabled ?? false} 
-                onValueChange={handle2FAToggle}
-                trackColor={{ false: '#3f3f46', true: '#2563eb' }}
-                disabled={loading}
-              />
-            </View>
-            <View style={styles.divider} />
-            <TouchableOpacity style={styles.row} onPress={() => router.push('/settings/sessions')}>
-              <View style={styles.rowLeft}>
-                <Feather name="monitor" size={20} color="#71717a" />
-                <Text style={styles.rowText}>Active Sessions</Text>
-              </View>
-              <Feather name="chevron-right" size={20} color="#71717a" />
-            </TouchableOpacity>
-          </View>
+          <SectionLabel>Preferences</SectionLabel>
+          <Card>
+            <Row
+              icon="shield"
+              tint="#10b981"
+              title="Privacy & Security"
+              subtitle="Read receipts, blocked users, 2FA, sessions"
+              onPress={() => router.push('/settings/privacy')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="bell"
+              tint="#f59e0b"
+              title="Notifications"
+              subtitle="Muted conversations"
+              onPress={() => router.push('/settings/notifications')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="droplet"
+              tint="#8b5cf6"
+              title="Appearance"
+              subtitle={`${mode === 'dark' ? 'Dark' : 'Light'} theme, chat wallpaper, media autoplay`}
+              onPress={() => router.push('/settings/appearance')}
+              chevron
+            />
+            <Divider />
+            <Row
+              icon="cpu"
+              tint="#ec4899"
+              title="AI Assistant"
+              subtitle={`Persona: ${PERSONA_LABELS[user?.botPersona || 'default']}`}
+              onPress={() => router.push('/settings/ai')}
+              chevron
+            />
+          </Card>
         </View>
 
+        {/* Session */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          <View style={styles.card}>
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="image" size={20} color="#71717a" />
-                <Text style={styles.rowText}>Auto-play GIFs</Text>
-              </View>
-              <Switch 
-                value={(user as any)?.autoPlayGifs ?? true} 
-                onValueChange={() => handleToggle('autoPlayGifs', (user as any)?.autoPlayGifs)}
-                trackColor={{ false: '#3f3f46', true: '#2563eb' }}
-                disabled={loading}
-              />
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.row}>
-              <View style={styles.rowLeft}>
-                <Feather name="volume-2" size={20} color="#71717a" />
-                <Text style={styles.rowText}>Auto-play Voice Messages</Text>
-              </View>
-              <Switch 
-                value={(user as any)?.autoPlayVoice ?? false} 
-                onValueChange={() => handleToggle('autoPlayVoice', (user as any)?.autoPlayVoice)}
-                trackColor={{ false: '#3f3f46', true: '#2563eb' }}
-                disabled={loading}
-              />
-            </View>
-          </View>
+          <SectionLabel>Session</SectionLabel>
+          <Card>
+            <Row
+              icon="log-out"
+              tint={colors.textSecondary}
+              title="Sign Out"
+              subtitle="Sign out on this device only"
+              onPress={handleSignOut}
+            />
+          </Card>
         </View>
 
+        {/* Danger zone */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitleDanger}>Danger Zone</Text>
-          <View style={[styles.card, styles.cardDanger]}>
-            <TouchableOpacity style={styles.row} onPress={handleDeleteAccount}>
-              <View style={styles.rowLeft}>
-                <Feather name="trash-2" size={20} color="#ef4444" />
-                <Text style={styles.rowTextDanger}>Delete Account</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
+          <SectionLabel color={colors.danger}>Danger Zone</SectionLabel>
+          <Card danger>
+            <Row
+              icon="trash-2"
+              title="Delete Account"
+              subtitle="Permanently remove all your data, messages, and chats"
+              onPress={() => router.push('/settings/danger')}
+              chevron
+              danger
+            />
+          </Card>
         </View>
+
+        <Text style={[styles.footerText, { color: colors.textTertiary }]}>
+          Vokitoki · Settings sync with the web app
+        </Text>
       </ScrollView>
-
-      <TwoFactorModal
-        visible={twoFaModalVisible}
-        onClose={() => setTwoFaModalVisible(false)}
-        isEnabling={isEnabling2Fa}
-        onSuccess={() => setTwoFaModalVisible(false)}
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#09090b',
-  },
-  header: {
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 48 },
+  profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 60,
-    paddingBottom: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#27272a',
-    backgroundColor: '#18181b',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#f4f4f5',
-  },
-  iconButton: {
-    padding: 8,
-  },
-  content: {
-    padding: 24,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#a1a1aa',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-    marginLeft: 8,
-  },
-  sectionTitleDanger: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fca5a5',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-    marginLeft: 8,
-  },
-  card: {
-    backgroundColor: '#18181b',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#27272a',
-  },
-  cardDanger: {
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-    backgroundColor: 'rgba(239, 68, 68, 0.05)',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    borderRadius: 24,
     padding: 16,
+    gap: 14,
+    marginBottom: 26,
   },
-  rowLeft: {
+  profileAvatarRing: {
+    padding: 3,
+    borderRadius: 34,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  profileAvatar: { width: 58, height: 58, borderRadius: 29 },
+  profileAvatarFallback: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarLetter: { fontSize: 24, fontWeight: '800', color: '#fff' },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  profileHandle: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 1, fontWeight: '600' },
+  profileEditPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginTop: 7,
   },
-  rowText: {
-    fontSize: 16,
-    color: '#f4f4f5',
+  profileEditText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  section: { marginBottom: 24 },
+  footerText: {
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 6,
   },
-  rowTextDanger: {
-    fontSize: 16,
-    color: '#ef4444',
-    fontWeight: '500',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#27272a',
-    marginLeft: 48,
-  }
 });

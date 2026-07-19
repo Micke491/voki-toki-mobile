@@ -88,6 +88,7 @@ export const ChatListScreen = () => {
   const [showNewChat, setShowNewChat] = useState(false);
   const [activeTab, setActiveTab] = useState<'chats' | 'requests'>('chats');
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
+  const [muteSelectChat, setMuteSelectChat] = useState<{ chatId: string; name: string } | null>(null);
   const [reportingGroup, setReportingGroup] = useState<{ groupId: string; groupName: string } | null>(null);
 
   const { storyGroups, fetchStories, markViewed, deleteStory, hasUnviewedStories } = useStories(user?._id);
@@ -402,7 +403,16 @@ export const ChatListScreen = () => {
                       <Text style={styles.menuItemText}>Unmute Chat</Text>
                     </TouchableOpacity>
                   ) : (
-                    <TouchableOpacity style={styles.menuItem} onPress={() => { handleMuteChat(selectedChatForMenu._id); setSelectedChatForMenu(null); }}>
+                    <TouchableOpacity
+                      style={styles.menuItem}
+                      onPress={() => {
+                        const name = selectedChatForMenu.isGroupChat
+                          ? (selectedChatForMenu.name || 'Group')
+                          : getOtherParticipant(selectedChatForMenu).username;
+                        setSelectedChatForMenu(null);
+                        setMuteSelectChat({ chatId: selectedChatForMenu._id, name });
+                      }}
+                    >
                       <Feather name="bell-off" size={20} color="#f4f4f5" />
                       <Text style={styles.menuItemText}>Mute Chat</Text>
                     </TouchableOpacity>
@@ -486,6 +496,67 @@ export const ChatListScreen = () => {
                     </TouchableOpacity>
                   )}
 
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+
+      {/* Mute Duration Modal */}
+      {muteSelectChat && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMuteSelectChat(null)}
+        >
+          <TouchableWithoutFeedback onPress={() => setMuteSelectChat(null)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback>
+                <View style={styles.menuContainer}>
+                  <View style={styles.muteHeader}>
+                    <View style={styles.muteIconWrap}>
+                      <Feather name="bell-off" size={18} color="#f59e0b" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.muteTitle} numberOfLines={1}>
+                        Mute "{muteSelectChat.name}"
+                      </Text>
+                      <Text style={styles.muteSubtitle}>
+                        How long should notifications stay silenced?
+                      </Text>
+                    </View>
+                  </View>
+
+                  {[
+                    { label: '8 Hours', sub: 'Back tomorrow', value: 8, icon: 'clock' as const },
+                    { label: '1 Week', sub: 'A proper break', value: 168, icon: 'calendar' as const },
+                    { label: 'Until I turn it off', sub: 'Muted indefinitely', value: -1, icon: 'moon' as const },
+                  ].map(option => (
+                    <TouchableOpacity
+                      key={option.label}
+                      style={styles.muteOption}
+                      onPress={() => {
+                        handleMuteChat(muteSelectChat.chatId, option.value);
+                        setMuteSelectChat(null);
+                      }}
+                    >
+                      <Feather name={option.icon} size={18} color="#a1a1aa" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.muteOptionLabel}>{option.label}</Text>
+                        <Text style={styles.muteOptionSub}>{option.sub}</Text>
+                      </View>
+                      <Feather name="chevron-right" size={17} color="#3f3f46" />
+                    </TouchableOpacity>
+                  ))}
+
+                  <TouchableOpacity
+                    style={styles.muteCancel}
+                    onPress={() => setMuteSelectChat(null)}
+                  >
+                    <Text style={styles.muteCancelText}>Cancel</Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableWithoutFeedback>
             </View>
@@ -857,5 +928,61 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#27272a',
     marginVertical: 8,
+  },
+  muteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  muteIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  muteTitle: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: '#f4f4f5',
+  },
+  muteSubtitle: {
+    fontSize: 12,
+    color: '#71717a',
+    marginTop: 2,
+  },
+  muteOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: '#09090b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+    borderRadius: 14,
+    marginBottom: 8,
+  },
+  muteOptionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#f4f4f5',
+  },
+  muteOptionSub: {
+    fontSize: 11,
+    color: '#71717a',
+    marginTop: 1,
+  },
+  muteCancel: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  muteCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#71717a',
   },
 });

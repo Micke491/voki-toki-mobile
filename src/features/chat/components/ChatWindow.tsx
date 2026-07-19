@@ -18,8 +18,10 @@ import {
   Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
+import { resolveWallpaperColors } from '../utils/wallpaperPresets';
 import { useChatDetails } from '../hooks/useChatDetails';
 import { useChatMessages } from '../hooks/useChatMessages';
 import { MessageBubble } from './MessageBubble';
@@ -678,12 +680,23 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
 
   if (!user) return null;
 
+  const wallpaperColors = resolveWallpaperColors(user.defaultWallpaper);
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior="padding"
       keyboardVerticalOffset={0}
     >
+      {wallpaperColors && (
+        <LinearGradient
+          colors={wallpaperColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+      )}
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.headerButton}>
