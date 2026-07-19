@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
+import React, { createContext, useCallback, useContext, useState, useEffect, PropsWithChildren } from 'react';
 import { User } from '../../../types';
 import { getToken, saveToken, removeToken } from '../../../utils/storage';
 import { authApi } from '../api';
@@ -44,9 +44,11 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     setUser(null);
   };
 
-  const updateUser = (userData: User) => {
-    setUser(userData);
-  };
+  const updateUser = useCallback((userData: User) => {
+    setUser((currentUser) => (
+      currentUser?._id === userData._id ? userData : currentUser
+    ));
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, isLoading, signIn, signOut, updateUser }}>

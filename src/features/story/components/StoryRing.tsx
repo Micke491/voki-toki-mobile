@@ -21,6 +21,7 @@ interface StoryRingProps {
   onPress?: () => void;
   label?: string;
   disabled?: boolean;
+  accessibilityLabel?: string;
 }
 
 export const StoryRing = ({
@@ -32,6 +33,7 @@ export const StoryRing = ({
   onPress,
   label,
   disabled,
+  accessibilityLabel,
 }: StoryRingProps) => {
   const outer = typeof size === 'number' ? size : SIZE_PRESETS[size];
   const ringWidth = outer >= 96 ? 3 : 2;
@@ -83,6 +85,8 @@ export const StoryRing = ({
         activeOpacity={0.7}
         onPress={onPress}
         disabled={disabled || !onPress}
+        accessibilityRole={onPress ? 'button' : undefined}
+        accessibilityLabel={accessibilityLabel}
       >
         {content}
       </TouchableOpacity>

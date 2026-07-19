@@ -8,7 +8,7 @@ interface InputProps extends TextInputProps {
   isPassword?: boolean;
 }
 
-export const Input = ({ label, error, isPassword, ...props }: InputProps) => {
+export const Input = ({ label, error, isPassword, style, ...props }: InputProps) => {
   const [hidden, setHidden] = useState(isPassword);
   
   return (
@@ -16,7 +16,12 @@ export const Input = ({ label, error, isPassword, ...props }: InputProps) => {
       <Text style={styles.label}>{label}</Text>
       <View style={styles.inputContainer}>
         <TextInput 
-          style={[styles.input, error && styles.inputError, isPassword && styles.inputPasswordPadding]} 
+          style={[
+            styles.input,
+            error && styles.inputError,
+            isPassword && styles.inputPasswordPadding,
+            style,
+          ]}
           placeholderTextColor="#71717a"
           secureTextEntry={hidden}
           {...props} 
