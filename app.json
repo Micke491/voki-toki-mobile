@@ -42,7 +42,8 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION",
         "android.permission.VIBRATE"
       ],
-      "package": "com.anonymous.chatappmobile"
+      "package": "com.vokitoki.app",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
