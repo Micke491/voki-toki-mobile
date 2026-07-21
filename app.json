@@ -60,6 +60,13 @@
       ],
       "./plugins/withWebRTC.js",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "12e3b038-a5c3-44c4-b24e-89aa40476444"
+      }
+    },
+    "owner": "nikolamicic07"
   }
 }
