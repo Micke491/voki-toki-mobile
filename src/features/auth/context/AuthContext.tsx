@@ -26,8 +26,14 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
           const data = await authApi.getCurrentUser();
           setUser(data.user);
         }
-      } catch (error) {
-        await removeToken();
+      } catch (error: any) {
+        const status = error?.response?.status;
+        // Only a real rejection invalidates the session. Network errors,
+        // timeouts, and 5xx mean the server is unreachable/cold — keep the
+        // token so the user stays logged in.
+        if (status === 401 || status === 403) {
+          await removeToken();
+        }
       } finally {
         setIsLoading(false);
       }
