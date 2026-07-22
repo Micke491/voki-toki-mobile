@@ -13,6 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNewChat } from '../hooks/useNewChat';
 import { ListItem, SearchUser } from '../types';
 import { chatApi } from '../api';
@@ -41,6 +42,7 @@ interface NewChatModalProps {
 }
 
 export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = [] }: NewChatModalProps) => {
+  const insets = useSafeAreaInsets();
   const {
     searchQuery,
     setSearchQuery,
@@ -319,7 +321,7 @@ export const NewChatModal = ({ visible, onClose, onChatCreated, chatListUsers = 
               }
             />
             
-            <View style={styles.createGroupFooter}>
+            <View style={[styles.createGroupFooter, { paddingBottom: 16 + insets.bottom }]}>
               <TouchableOpacity
                 style={[styles.createGroupButton, (!groupName.trim() || selectedUsers.length === 0) && styles.createGroupButtonDisabled]}
                 onPress={handleCreateGroup}
@@ -580,7 +582,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    paddingBottom: 16,
     backgroundColor: 'rgba(9,9,11,0.9)',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#27272a',

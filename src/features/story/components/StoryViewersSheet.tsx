@@ -10,6 +10,7 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Story, StoryViewer } from '../types';
 
 interface StoryViewersSheetProps {
@@ -21,6 +22,7 @@ interface StoryViewersSheetProps {
 // Bottom sheet listing who viewed a story — the mobile version of the web
 // management modal's "Story Views" panel.
 export const StoryViewersSheet = ({ visible, story, onClose }: StoryViewersSheetProps) => {
+  const insets = useSafeAreaInsets();
   const viewers = useMemo(() => {
     if (!story?.viewedBy?.length) return [];
     const unique = Array.from(new Map(story.viewedBy.map(v => [v.userId, v])).values());
@@ -52,7 +54,7 @@ export const StoryViewersSheet = ({ visible, story, onClose }: StoryViewersSheet
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
-            <View style={styles.sheet}>
+            <View style={[styles.sheet, { paddingBottom: 16 + insets.bottom }]}>
               <View style={styles.handle} />
               <View style={styles.header}>
                 <Feather name="eye" size={16} color="#2563eb" />
@@ -95,7 +97,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingBottom: 32,
+    paddingBottom: 16,
     maxHeight: '60%',
   },
   handle: {

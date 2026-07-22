@@ -15,6 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { StoryGroup } from '../types';
 import { chatApi } from '../../chat/api';
@@ -67,6 +68,7 @@ export const StoryViewer = ({
   onViewed,
   onDeleteStory,
 }: StoryViewerProps) => {
+  const insets = useSafeAreaInsets();
   const [groupIndex, setGroupIndex] = useState(initialGroupIndex);
   const [storyIndex, setStoryIndex] = useState(initialStoryIndex);
   const [paused, setPaused] = useState(false);
@@ -375,7 +377,7 @@ export const StoryViewer = ({
         )}
 
         {/* Bottom: caption + owner stats or reply bar */}
-        <View style={styles.bottom}>
+        <View style={[styles.bottom, { paddingBottom: 12 + insets.bottom }]}>
           {story.caption ? <Text style={styles.caption}>{story.caption}</Text> : null}
 
           {isOwner ? (
@@ -615,7 +617,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingBottom: 12,
     paddingTop: 12,
     gap: 14,
     backgroundColor: 'rgba(0,0,0,0.35)',

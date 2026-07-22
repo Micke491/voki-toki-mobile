@@ -20,6 +20,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { resolveWallpaperColors } from '../utils/wallpaperPresets';
 import { useChatDetails } from '../hooks/useChatDetails';
@@ -112,6 +113,7 @@ function buildListItems(messages: Message[], firstUnreadId: string | null): List
 
 export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList<ListItem>>(null);
@@ -932,7 +934,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           </Text>
         </View>
       ) : (
-      <View style={styles.inputBar}>
+      <View style={[styles.inputBar, { paddingBottom: 12 + insets.bottom }]}>
         {isRecording ? (
           <View style={styles.recordingBar}>
             <Animated.View style={styles.recordingDot} />
@@ -1623,7 +1625,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+    paddingBottom: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#27272a',
     backgroundColor: '#09090b',

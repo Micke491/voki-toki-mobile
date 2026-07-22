@@ -6,6 +6,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { botApi, BotSendError } from '../api';
 import { BotChat, BotMessage, PendingBotAttachment } from '../types';
@@ -83,6 +84,7 @@ function TypingDots() {
 
 export function BotChatWindow({ chatId }: { chatId: string }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const isNewChat = chatId === 'new';
 
@@ -580,7 +582,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
 
       {/* Composer */}
       {isRecording ? (
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { paddingBottom: 10 + insets.bottom }]}>
           <View style={styles.recordingBar}>
             <View style={styles.recordingDot} />
             <Text style={styles.recordingTime}>{formatRecording(recordingSeconds)}</Text>
@@ -602,7 +604,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
           </View>
         </View>
       ) : (
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { paddingBottom: 10 + insets.bottom }]}>
           <TouchableOpacity
             style={styles.attachButton}
             onPress={() => setAttachMenuOpen(open => !open)}
@@ -843,7 +845,7 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     padding: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 14,
+    paddingBottom: 10,
     backgroundColor: '#18181b',
     borderTopWidth: 1,
     borderTopColor: '#27272a',

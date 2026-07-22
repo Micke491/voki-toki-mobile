@@ -14,6 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, CameraType, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { Video, ResizeMode } from 'expo-av';
 import { useMediaPicker, PickedMedia } from '../../chat/hooks/useMediaPicker';
@@ -31,6 +32,7 @@ interface StoryComposerProps {
 // capture and a gallery shortcut, then an edit stage where text can be added
 // before posting (sent as the story caption, same as the web app).
 export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps) => {
+  const insets = useSafeAreaInsets();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const { pickFromLibrary } = useMediaPicker();
@@ -193,7 +195,7 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
               </TouchableOpacity>
             </View>
 
-            <View style={styles.editBottom}>
+            <View style={[styles.editBottom, { paddingBottom: 16 + insets.bottom }]}>
               <View style={styles.captionBar}>
                 <Feather name="type" size={16} color="rgba(255,255,255,0.6)" style={{ marginRight: 8 }} />
                 <TextInput
@@ -480,7 +482,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 16,
-    paddingBottom: 32,
+    paddingBottom: 16,
     gap: 12,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
