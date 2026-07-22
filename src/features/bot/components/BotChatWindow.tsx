@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Animated,
+  ActivityIndicator, KeyboardAvoidingView, Keyboard, Platform, Image, Alert, Animated,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -87,6 +87,23 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const isNewChat = chatId === 'new';
+
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    // The home-indicator/nav-bar inset only needs padding when the keyboard
+    // is closed — when it's open, the keyboard itself occupies that space
+    // and KeyboardAvoidingView already accounts for the keyboard's height,
+    // so adding insets.bottom on top of that double-pads the input bar.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const [currentChatId, setCurrentChatId] = useState<string | null>(isNewChat ? null : chatId);
   const [chat, setChat] = useState<BotChat | null>(null);
@@ -582,7 +599,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
 
       {/* Composer */}
       {isRecording ? (
-        <View style={[styles.inputContainer, { paddingBottom: 10 + insets.bottom }]}>
+        <View style={[styles.inputContainer, { paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom) }]}>
           <View style={styles.recordingBar}>
             <View style={styles.recordingDot} />
             <Text style={styles.recordingTime}>{formatRecording(recordingSeconds)}</Text>
@@ -604,7 +621,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
           </View>
         </View>
       ) : (
-        <View style={[styles.inputContainer, { paddingBottom: 10 + insets.bottom }]}>
+        <View style={[styles.inputContainer, { paddingBottom: 10 + (keyboardVisible ? 0 : insets.bottom) }]}>
           <TouchableOpacity
             style={styles.attachButton}
             onPress={() => setAttachMenuOpen(open => !open)}

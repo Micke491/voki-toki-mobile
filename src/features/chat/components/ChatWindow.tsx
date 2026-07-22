@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ListRenderItemInfo,
   NativeSyntheticEvent,
@@ -116,6 +117,22 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [inputText, setInputText] = useState('');
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    // The home-indicator/nav-bar inset only needs padding when the keyboard
+    // is closed — when it's open, the keyboard itself occupies that space
+    // and KeyboardAvoidingView already accounts for the keyboard's height,
+    // so adding insets.bottom on top of that double-pads the input bar.
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
   const flatListRef = useRef<FlatList<ListItem>>(null);
   const shouldScrollRef = useRef(true);
   const isTypingRef = useRef(false);
@@ -934,7 +951,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
           </Text>
         </View>
       ) : (
-      <View style={[styles.inputBar, { paddingBottom: 12 + insets.bottom }]}>
+      <View style={[styles.inputBar, { paddingBottom: 12 + (keyboardVisible ? 0 : insets.bottom) }]}>
         {isRecording ? (
           <View style={styles.recordingBar}>
             <Animated.View style={styles.recordingDot} />
