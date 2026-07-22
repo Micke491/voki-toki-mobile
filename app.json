@@ -43,7 +43,7 @@
         "android.permission.VIBRATE"
       ],
       "package": "com.vokitoki.app",
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
