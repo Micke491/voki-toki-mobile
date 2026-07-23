@@ -43,7 +43,7 @@
         "android.permission.VIBRATE"
       ],
       "package": "com.vokitoki.app",
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -59,7 +59,14 @@
         }
       ],
       "./plugins/withWebRTC.js",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6366F1"
+        }
+      ]
     ],
     "extra": {
       "router": {},

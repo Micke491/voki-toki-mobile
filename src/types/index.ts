@@ -5,6 +5,13 @@ export interface UserLink {
 
 export type BotPersona = 'default' | 'coding' | 'coach' | 'sarcastic';
 
+export interface NotificationPrefs {
+  directMessages?: boolean;
+  groupMessages?: boolean;
+  calls?: boolean;
+  chatRequests?: boolean;
+}
+
 export interface User {
   _id: string;
   username: string;
@@ -23,5 +30,6 @@ export interface User {
   autoPlayVoice?: boolean;
   storyPrivacy?: string;
   botPersona?: BotPersona;
+  notificationPrefs?: NotificationPrefs;
   createdAt?: string;
 }

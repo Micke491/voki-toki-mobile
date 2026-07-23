@@ -4,6 +4,7 @@ import { CallProvider } from '../src/features/calls/CallContext';
 import { ThemeProvider } from '../src/features/theme/ThemeContext';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { ServerGate } from '../src/components/ServerGate';
+import { NotificationsManager } from '../src/features/notifications/NotificationsManager';
 
 export default function RootLayout() {
   return (
@@ -12,6 +13,7 @@ export default function RootLayout() {
         <AuthProvider>
           <ThemeProvider>
             <CallProvider>
+              <NotificationsManager />
               <Stack screenOptions={{ headerShown: false }} />
             </CallProvider>
           </ThemeProvider>

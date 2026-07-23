@@ -9,7 +9,18 @@ import { settingsApi } from '../api';
 import { chatApi } from '../../chat/api';
 import { ChatListItem } from '../../chat/types';
 import { getNotificationsEnabled, setNotificationsEnabled } from '../../../utils/storage';
-import { SettingsHeader, FeedbackToast, Feedback, SectionLabel, Card, ToggleRow } from './ui';
+import { registerForPushNotifications } from '../../notifications/registerPush';
+import { NotificationPrefs } from '../../../types';
+import { SettingsHeader, FeedbackToast, Feedback, SectionLabel, Card, ToggleRow, Divider } from './ui';
+
+type NotifType = keyof NotificationPrefs;
+
+const NOTIF_TYPES: { key: NotifType; icon: any; title: string; subtitle: string }[] = [
+  { key: 'directMessages', icon: 'message-circle', title: 'Direct messages', subtitle: 'One-on-one chat messages' },
+  { key: 'groupMessages', icon: 'users', title: 'Group messages', subtitle: 'Messages in your group chats' },
+  { key: 'calls', icon: 'phone', title: 'Calls', subtitle: 'Incoming voice and video calls' },
+  { key: 'chatRequests', icon: 'user-plus', title: 'Chat requests', subtitle: 'When someone requests to chat' },
+];
 
 interface MutedChatRow {
   chatId: string;
@@ -33,12 +44,17 @@ function formatMutedUntil(mutedUntil: string): string {
 
 export function NotificationSettingsScreen() {
   const { colors } = useTheme();
-  const { user } = useAuthContext();
+  const { user, updateUser } = useAuthContext();
   const [rows, setRows] = useState<MutedChatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [unmutingId, setUnmutingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [notifEnabled, setNotifEnabled] = useState(true);
+  const [savingType, setSavingType] = useState<NotifType | null>(null);
+
+  // A missing/undefined preference means "enabled".
+  const prefs = user?.notificationPrefs || {};
+  const isTypeEnabled = (key: NotifType) => prefs[key] !== false;
 
   useEffect(() => {
     getNotificationsEnabled().then(setNotifEnabled);
@@ -47,10 +63,32 @@ export function NotificationSettingsScreen() {
   const toggleNotifications = async (value: boolean) => {
     setNotifEnabled(value);
     await setNotificationsEnabled(value);
+    if (value) {
+      // Turning the master switch on re-requests OS permission and registers
+      // this device's push token with the backend.
+      registerForPushNotifications();
+    }
     setFeedback({
       type: 'success',
       message: value ? 'Notifications enabled' : 'Notifications turned off',
     });
+  };
+
+  const toggleType = async (key: NotifType, value: boolean) => {
+    const nextPrefs: NotificationPrefs = { ...prefs, [key]: value };
+    setSavingType(key);
+    // Optimistically reflect the change in the auth user.
+    if (user) updateUser({ ...user, notificationPrefs: nextPrefs });
+    try {
+      const res = await settingsApi.updatePreferences({ notificationPrefs: nextPrefs });
+      if (res.user) updateUser(res.user);
+    } catch {
+      // Roll back on failure.
+      if (user) updateUser({ ...user, notificationPrefs: prefs });
+      setFeedback({ type: 'error', message: 'Failed to update notification settings' });
+    } finally {
+      setSavingType(null);
+    }
   };
 
   useEffect(() => {
@@ -165,6 +203,26 @@ export function NotificationSettingsScreen() {
                   value={notifEnabled}
                   onValueChange={toggleNotifications}
                 />
+              </Card>
+              <SectionLabel>Notification Types</SectionLabel>
+              <Text style={[styles.headerHint, { color: colors.textTertiary }]}>
+                Choose which alerts reach you. These apply across all your devices.
+              </Text>
+              <Card style={{ marginBottom: 22 }}>
+                {NOTIF_TYPES.map((t, i) => (
+                  <React.Fragment key={t.key}>
+                    <ToggleRow
+                      icon={t.icon}
+                      tint="#6366F1"
+                      title={t.title}
+                      subtitle={t.subtitle}
+                      value={isTypeEnabled(t.key)}
+                      disabled={savingType === t.key}
+                      onValueChange={(v) => toggleType(t.key, v)}
+                    />
+                    {i < NOTIF_TYPES.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
               </Card>
               <SectionLabel>Muted Chats Manager</SectionLabel>
               <Text style={[styles.headerHint, { color: colors.textTertiary }]}>
