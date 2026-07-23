@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { Feather } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { settingsApi } from '../api';
+import { parseDeviceLabel, dedupeSessions } from '../../../utils/deviceLabel';
 
 export function ActiveSessionsScreen() {
   const router = useRouter();
@@ -13,7 +14,7 @@ export function ActiveSessionsScreen() {
     try {
       setLoading(true);
       const res = await settingsApi.getActiveSessions();
-      setSessions(res.sessions || []);
+      setSessions(dedupeSessions(res.sessions || []));
     } catch (err) {
       console.error(err);
       Alert.alert('Error', 'Failed to load sessions');
@@ -47,16 +48,17 @@ export function ActiveSessionsScreen() {
   const renderItem = ({ item }: { item: any }) => {
     const isCurrent = item.isCurrent;
     const date = new Date(item.lastActive).toLocaleString();
+    const { label, isMobile } = parseDeviceLabel(item.device);
 
     return (
       <View style={[styles.sessionCard, isCurrent && styles.currentCard]}>
         <View style={styles.iconContainer}>
-          <Feather name={item.device?.toLowerCase().includes('mobile') ? 'smartphone' : 'monitor'} size={24} color={isCurrent ? '#3b82f6' : '#71717a'} />
+          <Feather name={isMobile ? 'smartphone' : 'monitor'} size={24} color={isCurrent ? '#3b82f6' : '#71717a'} />
         </View>
         <View style={styles.sessionInfo}>
           <View style={styles.deviceRow}>
             <Text style={[styles.deviceText, isCurrent && styles.currentDeviceText]}>
-              {item.device || 'Unknown Device'}
+              {label}
             </Text>
             {isCurrent && <View style={styles.currentBadge}><Text style={styles.currentBadgeText}>Current</Text></View>}
           </View>

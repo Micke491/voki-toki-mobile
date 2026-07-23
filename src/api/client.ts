@@ -1,7 +1,18 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
+import * as Device from 'expo-device';
 import { getToken, removeToken, getTrustedDeviceToken } from '../utils/storage';
 import { router } from 'expo-router';
+
+// A human-friendly device label sent on login so Active Sessions shows e.g.
+// "iPhone 15 Pro (iOS 17.2)" instead of a raw axios/OkHttp User-Agent.
+const buildDeviceName = (): string => {
+  const model = Device.modelName || Device.deviceName || 'Mobile Device';
+  const os = [Device.osName, Device.osVersion].filter(Boolean).join(' ');
+  return os ? `${model} (${os})` : model;
+};
+
+export const DEVICE_NAME = buildDeviceName();
 
 const getBaseUrl = () => {
   if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
@@ -26,6 +37,9 @@ apiClient.interceptors.request.use(async (config) => {
   }
   // Lets a 2FA-enabled account skip the email code on this device (server-checked
   // only on /auth/login), so it's safe to attach whenever we have one.
+  // Sent on every request; the server only reads it when creating a session
+  // (login / 2FA verify), so Active Sessions shows a friendly device name.
+  config.headers['X-Device-Name'] = DEVICE_NAME;
   if (config.url?.includes('/auth/login')) {
     const trustedDeviceToken = await getTrustedDeviceToken();
     if (trustedDeviceToken) {
