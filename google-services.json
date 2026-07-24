@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1086575846712",
+    "project_id": "vokitoki-61cdf",
+    "storage_bucket": "vokitoki-61cdf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1086575846712:android:326af7f5d75875f9294dcd",
+        "android_client_info": {
+          "package_name": "com.vokitoki.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCIQ2fr552M_msR_xOmJWyVJgNQ5TWZvpY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

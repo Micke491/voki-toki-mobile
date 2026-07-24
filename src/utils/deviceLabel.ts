@@ -1,6 +1,3 @@
-// Turns a stored session "device" value into a friendly label + device type.
-// Native app sessions already carry a friendly label (e.g. "iPhone 15 Pro
-// (iOS 17.2)"); browser sessions carry a raw User-Agent string.
 export const parseDeviceLabel = (device: string): { label: string; isMobile: boolean } => {
   const ua = (device || '').trim();
   if (!ua) return { label: 'Unknown Device', isMobile: false };
@@ -39,8 +36,6 @@ interface DedupableSession {
   isCurrent: boolean;
 }
 
-// Collapse duplicate device + IP rows, keeping the current (or most recently
-// active) session and listing the current device first.
 export const dedupeSessions = <T extends DedupableSession>(sessions: T[]): T[] => {
   const byKey = new Map<string, T>();
   for (const s of sessions) {

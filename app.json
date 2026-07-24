@@ -43,7 +43,8 @@
         "android.permission.VIBRATE"
       ],
       "package": "com.vokitoki.app",
-      "versionCode": 5
+      "googleServicesFile": "./google-services.json",
+      "versionCode": 6
     },
     "web": {
       "favicon": "./assets/favicon.png"

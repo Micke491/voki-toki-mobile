@@ -32,6 +32,7 @@ function getProjectId(): string | undefined {
 
 export async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) {
+    console.warn('[push] Skipped: emulators cannot receive push notifications.');
     return null;
   }
 
@@ -44,19 +45,27 @@ export async function registerForPushNotifications(): Promise<string | null> {
     status = req.status;
   }
   if (status !== 'granted') {
+    console.warn(`[push] Skipped: notification permission is "${status}".`);
     return null;
   }
 
   const projectId = getProjectId();
+  let token: string;
   try {
     const tokenResponse = await Notifications.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined,
     );
-    const token = tokenResponse.data;
+    token = tokenResponse.data;
+  } catch (err) {
+    console.error('[push] Could not obtain an Expo push token:', err);
+    return null;
+  }
+
+  try {
     await apiClient.post('/users/device-token', { expoPushToken: token });
     return token;
   } catch (err) {
-    console.warn('[push] Failed to register push token:', err);
+    console.error('[push] Could not save the push token to the backend:', err);
     return null;
   }
 }

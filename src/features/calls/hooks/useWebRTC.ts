@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { Audio } from 'expo-av';
+import InCallManager from 'react-native-incall-manager';
 import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../../chat/api';
 import { RTCPeerConnection, RNMediaStream, mediaDevices, webrtcAvailable } from '../webrtc';
 
-// Mirror of the web app's WebRTC mesh (D:/chat-app/features/calls/hooks/useWebRTC.ts):
-// signaling goes over the app WebSocket ("signal" action on the call-<id> channel,
-// rebroadcast by the server as "webrtc_signal"), one RTCPeerConnection per remote
-// session, perfect negotiation resolves offer glare. Remote audio plays natively on
-// mobile, so unlike web there are no audio sinks and no Web Audio speaking analysers.
 
 export interface CallParticipant {
   sid: string;
@@ -66,26 +61,23 @@ function makeSid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function applyAudioRoute(speakerOn: boolean) {
+function startAudioSession(withVideo: boolean, speakerOn: boolean) {
   try {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: true,
-      shouldDuckAndroid: false,
-      playThroughEarpieceAndroid: !speakerOn,
-    });
+    InCallManager.start({ media: withVideo ? 'video' : 'audio' });
+    InCallManager.setForceSpeakerphoneOn(speakerOn);
   } catch {}
 }
 
-async function resetAudioRoute() {
+function applyAudioRoute(speakerOn: boolean) {
   try {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      playThroughEarpieceAndroid: false,
-    });
+    InCallManager.setForceSpeakerphoneOn(speakerOn);
+  } catch {}
+}
+
+function stopAudioSession() {
+  try {
+    InCallManager.setForceSpeakerphoneOn(false);
+    InCallManager.stop();
   } catch {}
 }
 
@@ -100,8 +92,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
   const peersRef = useRef<Map<string, PeerRecord>>(new Map());
   const iceServersRef = useRef<any[]>(FALLBACK_ICE);
 
-  // Stable containers so the announced stream IDs never change, even when
-  // tracks are re-acquired (camera/screen toggles). Both are native-backed.
   const localStreamRef = useRef<any | null>(null);
   const screenStreamRef = useRef<any | null>(null);
   const screenTrackRef = useRef<any | null>(null);
@@ -168,7 +158,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         screenStream = peer.remoteStreams.get(peer.screenStreamId) || null;
       }
       if (!stream) {
-        // Fallback: any received stream that is not the announced screen share.
         for (const s of peer.remoteStreams.values()) {
           if (s.id !== peer.screenStreamId) {
             stream = s;
@@ -195,9 +184,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     sendSignal({ kind: 'state', ...identityPayload() });
   }, [sendSignal, identityPayload]);
 
-  // ---------------------------------------------------------------------------
-  // Peer connection management (mesh: one RTCPeerConnection per remote session)
-  // ---------------------------------------------------------------------------
 
   const applyPeerInfo = useCallback((peer: PeerRecord, msg: SignalMessage) => {
     if (msg.username) peer.username = msg.username;
@@ -228,8 +214,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
   const createPeer = useCallback(
     (msg: SignalMessage): PeerRecord => {
       const theirSid = msg.sid;
-      // A repeated join for a known session means the other side rebuilt its
-      // connection — rebuild ours too so both start from a clean state.
       if (peersRef.current.has(theirSid)) {
         destroyPeer(theirSid);
       }
@@ -242,7 +226,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         username: msg.username || 'User',
         avatar: msg.avatar,
         pc,
-        // Exactly one side of each pair is "polite" (yields on offer glare).
         polite: sidRef.current < theirSid,
         makingOffer: false,
         ignoreOffer: false,
@@ -317,8 +300,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         syncPeers();
       };
 
-      // Publish whatever local media we currently have. This fires
-      // onnegotiationneeded on both sides; perfect negotiation resolves glare.
       const local = localStreamRef.current;
       if (local) {
         const audio = local.getAudioTracks()[0];
@@ -436,10 +417,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     [createPeer, destroyPeer, applyPeerInfo, sendSignal, syncPeers, identityPayload]
   );
 
-  // ---------------------------------------------------------------------------
-  // Local media controls
-  // ---------------------------------------------------------------------------
-
   const toggleMic = useCallback(async () => {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -473,7 +450,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     if (!stream) return;
 
     if (camEnabledRef.current) {
-      // Fully stop the track so the camera hardware turns off.
       const track = stream.getVideoTracks()[0];
       if (track) {
         stream.removeTrack(track);
@@ -553,8 +529,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
       const track = display.getVideoTracks()[0];
       if (!track) throw new Error('No screen track');
 
-      // Keep one stable container stream so the stream ID (and therefore the
-      // remote mapping) survives stop/start cycles of screen sharing.
       if (!screenStreamRef.current) {
         screenStreamRef.current = new RNMediaStream();
       }
@@ -591,15 +565,13 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     }
   }, [broadcastState, stopScreenShare, showTransientError]);
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle: acquire media, join the signaling channel, mesh with peers
-  // ---------------------------------------------------------------------------
-
   useEffect(() => {
     if (!webrtcAvailable) {
       setMediaError('Calls require a development build of the app.');
       return;
     }
+
+    startAudioSession(withVideo, withVideo);
 
     let cancelled = false;
     const channel = wsClient.subscribe(channelName);
@@ -609,7 +581,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     };
 
     const init = async () => {
-      // 1. ICE configuration from our own backend (STUN + optional TURN).
       try {
         const data = await chatApi.getIceServers();
         if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
@@ -619,7 +590,6 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         // Keep the fallback STUN config.
       }
 
-      // 2. Local media. Try mic (+camera for video calls), degrade gracefully.
       const container = new RNMediaStream();
       localStreamRef.current = container;
 
@@ -666,10 +636,7 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
       }
 
       setLocalStream(container);
-      applyAudioRoute(withVideo);
 
-      // 3. Join the call: everyone already in the room answers with "welcome"
-      // and a peer connection forms with each of them (mesh).
       channel.bind('webrtc_signal', onSignal);
       sendSignal({ kind: 'join', ...identityPayload() });
       setReady(true);
@@ -704,9 +671,8 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
       screenStreamRef.current = null;
 
       if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-      resetAudioRoute();
+      stopAudioSession();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [callId]);
 
   return {

@@ -8,8 +8,6 @@ import { useAuthContext } from '../../auth/context/AuthContext';
 import { settingsApi } from '../api';
 import { chatApi } from '../../chat/api';
 import { ChatListItem } from '../../chat/types';
-import { getNotificationsEnabled, setNotificationsEnabled } from '../../../utils/storage';
-import { registerForPushNotifications } from '../../notifications/registerPush';
 import { NotificationPrefs } from '../../../types';
 import { SettingsHeader, FeedbackToast, Feedback, SectionLabel, Card, ToggleRow, Divider } from './ui';
 
@@ -49,41 +47,19 @@ export function NotificationSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [unmutingId, setUnmutingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const [notifEnabled, setNotifEnabled] = useState(true);
   const [savingType, setSavingType] = useState<NotifType | null>(null);
 
-  // A missing/undefined preference means "enabled".
   const prefs = user?.notificationPrefs || {};
   const isTypeEnabled = (key: NotifType) => prefs[key] !== false;
-
-  useEffect(() => {
-    getNotificationsEnabled().then(setNotifEnabled);
-  }, []);
-
-  const toggleNotifications = async (value: boolean) => {
-    setNotifEnabled(value);
-    await setNotificationsEnabled(value);
-    if (value) {
-      // Turning the master switch on re-requests OS permission and registers
-      // this device's push token with the backend.
-      registerForPushNotifications();
-    }
-    setFeedback({
-      type: 'success',
-      message: value ? 'Notifications enabled' : 'Notifications turned off',
-    });
-  };
 
   const toggleType = async (key: NotifType, value: boolean) => {
     const nextPrefs: NotificationPrefs = { ...prefs, [key]: value };
     setSavingType(key);
-    // Optimistically reflect the change in the auth user.
     if (user) updateUser({ ...user, notificationPrefs: nextPrefs });
     try {
       const res = await settingsApi.updatePreferences({ notificationPrefs: nextPrefs });
       if (res.user) updateUser(res.user);
     } catch {
-      // Roll back on failure.
       if (user) updateUser({ ...user, notificationPrefs: prefs });
       setFeedback({ type: 'error', message: 'Failed to update notification settings' });
     } finally {
@@ -191,19 +167,6 @@ export function NotificationSettingsScreen() {
           contentContainerStyle={styles.list}
           ListHeaderComponent={
             <View style={styles.headerBlock}>
-              <SectionLabel>Alerts</SectionLabel>
-              <Card style={{ marginBottom: 22 }}>
-                <ToggleRow
-                  icon={notifEnabled ? 'bell' : 'bell-off'}
-                  tint="#f59e0b"
-                  title="Notifications"
-                  subtitle={notifEnabled
-                    ? 'You will be alerted about new messages and incoming calls on this device'
-                    : 'Turned off — this device will stay silent for messages and calls'}
-                  value={notifEnabled}
-                  onValueChange={toggleNotifications}
-                />
-              </Card>
               <SectionLabel>Notification Types</SectionLabel>
               <Text style={[styles.headerHint, { color: colors.textTertiary }]}>
                 Choose which alerts reach you. These apply across all your devices.
