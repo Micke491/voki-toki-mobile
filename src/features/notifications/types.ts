@@ -1,5 +1,5 @@
 export interface PushData {
-  type?: 'message' | 'request' | 'call' | string;
+  type?: 'message' | 'request' | 'call' | 'missed_call' | string;
   category?: string;
   chatId?: string;
   messageId?: string;

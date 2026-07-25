@@ -40,6 +40,8 @@ import { ChatSidebar } from './ChatSidebar';
 import { ReadReceiptModal } from './ReadReceiptModal';
 import { useCallContext } from '../../calls/CallContext';
 import { dismissChatNotifications } from '../../notifications/dismiss';
+import { setActiveChat } from '../../notifications/activeChat';
+import { refreshBadge } from '../../notifications/badge';
 import { MediaViewer } from '../../../components/MediaViewer';
 import { ReportModal } from '../../../components/ReportModal';
 import EmojiPicker from 'rn-emoji-keyboard';
@@ -81,6 +83,7 @@ const emojiPickerTheme = {
 interface ChatWindowProps {
   chatId: string;
   currentUserId: string;
+  autoFocusComposer?: boolean;
 }
 
 type ListItem =
@@ -113,7 +116,7 @@ function buildListItems(messages: Message[], firstUnreadId: string | null): List
   return items;
 }
 
-export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
+export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWindowProps) => {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
@@ -121,10 +124,6 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   useEffect(() => {
-    // The home-indicator/nav-bar inset only needs padding when the keyboard
-    // is closed — when it's open, the keyboard itself occupies that space
-    // and KeyboardAvoidingView already accounts for the keyboard's height,
-    // so adding insets.bottom on top of that double-pads the input bar.
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
@@ -191,11 +190,29 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   const { chats } = useChatList(currentUserId, chatId);
   const { startCall, joinCall } = useCallContext();
 
-  // Reading the conversation clears its stacked tray entry, so the badge does
-  // not keep advertising messages the user has already seen.
+  // Reading the conversation clears its stacked tray entry, and marks it as the
+  // chat that must not produce notifications while it is on screen. Opening it
+  // marks its messages read server-side, so the badge is stale on mount.
   useEffect(() => {
-    if (chatId) dismissChatNotifications(chatId);
+    if (!chatId) return;
+    dismissChatNotifications(chatId);
+    setActiveChat(chatId);
+    return () => {
+      setActiveChat(null);
+      // Leaving is the point at which the server has marked this chat's messages
+      // read, so this is when the badge can actually be recomputed correctly.
+      refreshBadge();
+    };
   }, [chatId]);
+
+  // Arriving from the notification's Reply button should land with the keyboard
+  // already up; the delay lets the screen transition settle first.
+  const composerRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!autoFocusComposer) return;
+    const timer = setTimeout(() => composerRef.current?.focus(), 350);
+    return () => clearTimeout(timer);
+  }, [autoFocusComposer]);
 
   const listItems = useMemo(
     () => buildListItems(messages, firstUnreadId).reverse(),
@@ -1010,6 +1027,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
               <Feather name="plus-circle" size={26} color="#71717a" />
             </TouchableOpacity>
             <TextInput
+              ref={composerRef}
               style={styles.input}
               placeholder="Message..."
               placeholderTextColor="#52525b"

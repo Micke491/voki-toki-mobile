@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { apiClient } from '../../api/client';
+import { registerNotificationCategories } from './categories';
 
 const ACCENT = '#6366F1';
 const BUZZ = [0, 250, 250, 250];
@@ -24,6 +25,7 @@ export async function ensureAndroidChannels(): Promise<void> {
     vibrationPattern: BUZZ,
     lightColor: ACCENT,
     sound: 'default',
+    showBadge: true,
   });
 
   await Notifications.setNotificationChannelAsync('messages_group', {
@@ -33,6 +35,7 @@ export async function ensureAndroidChannels(): Promise<void> {
     vibrationPattern: BUZZ,
     lightColor: ACCENT,
     sound: 'default',
+    showBadge: true,
   });
 
   await Notifications.setNotificationChannelAsync('chat_requests', {
@@ -42,6 +45,7 @@ export async function ensureAndroidChannels(): Promise<void> {
     vibrationPattern: BUZZ,
     lightColor: ACCENT,
     sound: 'default',
+    showBadge: true,
   });
 
   await Notifications.setNotificationChannelAsync('calls', {
@@ -51,6 +55,15 @@ export async function ensureAndroidChannels(): Promise<void> {
     vibrationPattern: BUZZ,
     lightColor: ACCENT,
     sound: 'default',
+    showBadge: true,
+  });
+
+  await Notifications.setNotificationChannelAsync('calls_missed', {
+    name: 'Missed calls',
+    groupId: 'calls_requests',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    lightColor: ACCENT,
+    showBadge: true,
   });
 
   await Notifications.setNotificationChannelAsync('default', {
@@ -75,6 +88,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 
   await ensureAndroidChannels();
+  await registerNotificationCategories();
 
   const { status: existing } = await Notifications.getPermissionsAsync();
   let status = existing;

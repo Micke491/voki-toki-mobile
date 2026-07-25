@@ -5,6 +5,7 @@ import { ThemeProvider } from '../src/features/theme/ThemeContext';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { ServerGate } from '../src/components/ServerGate';
 import { NotificationsManager } from '../src/features/notifications/NotificationsManager';
+import { InAppNotificationBanner } from '../src/features/notifications/InAppNotificationBanner';
 
 export default function RootLayout() {
   return (
@@ -15,6 +16,7 @@ export default function RootLayout() {
             <CallProvider>
               <NotificationsManager />
               <Stack screenOptions={{ headerShown: false }} />
+              <InAppNotificationBanner />
             </CallProvider>
           </ThemeProvider>
         </AuthProvider>
