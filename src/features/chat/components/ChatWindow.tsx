@@ -39,6 +39,7 @@ import { useChatList } from '../hooks/useChatList';
 import { ChatSidebar } from './ChatSidebar';
 import { ReadReceiptModal } from './ReadReceiptModal';
 import { useCallContext } from '../../calls/CallContext';
+import { dismissChatNotifications } from '../../notifications/dismiss';
 import { MediaViewer } from '../../../components/MediaViewer';
 import { ReportModal } from '../../../components/ReportModal';
 import EmojiPicker from 'rn-emoji-keyboard';
@@ -188,7 +189,13 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
   } = useChatMessages({ chatId, currentUserId });
 
   const { chats } = useChatList(currentUserId, chatId);
-  const { startCall } = useCallContext();
+  const { startCall, joinCall } = useCallContext();
+
+  // Reading the conversation clears its stacked tray entry, so the badge does
+  // not keep advertising messages the user has already seen.
+  useEffect(() => {
+    if (chatId) dismissChatNotifications(chatId);
+  }, [chatId]);
 
   const listItems = useMemo(
     () => buildListItems(messages, firstUnreadId).reverse(),
@@ -244,8 +251,19 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
     ? 'deleted'
     : null;
 
-  const handleCallAction = useCallback((type: 'voice' | 'video') => {
+  const handleCallAction = useCallback((type: 'voice' | 'video', existingCallId?: string) => {
     if (interactionDisabled) return;
+    if (existingCallId) {
+      joinCall({
+        callId: existingCallId,
+        chatId,
+        type,
+        remoteName: displayName,
+        remoteAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
+        remoteId: isGroup ? undefined : otherParticipant?._id,
+      });
+      return;
+    }
     startCall({
       chatId,
       calleeId: isGroup ? '' : (otherParticipant?._id || ''),
@@ -253,7 +271,7 @@ export const ChatWindow = ({ chatId, currentUserId }: ChatWindowProps) => {
       calleeAvatar: isGroup ? chat?.avatar : otherParticipant?.avatar,
       type,
     });
-  }, [startCall, chatId, isGroup, otherParticipant, displayName, chat, interactionDisabled]);
+  }, [startCall, joinCall, chatId, isGroup, otherParticipant, displayName, chat, interactionDisabled]);
 
   const [showAttachSheet, setShowAttachSheet] = useState(false);
   const { pickFromLibrary, pickFromCamera } = useMediaPicker();

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
@@ -86,7 +86,15 @@ export const ChatListScreen = () => {
   const { user } = useAuthContext();
   const router = useRouter();
   const [showNewChat, setShowNewChat] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chats' | 'requests'>('chats');
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const [activeTab, setActiveTab] = useState<'chats' | 'requests'>(
+    tab === 'requests' ? 'requests' : 'chats'
+  );
+
+  useEffect(() => {
+    if (tab === 'requests') setActiveTab('requests');
+    else if (tab === 'chats') setActiveTab('chats');
+  }, [tab]);
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
   const [muteSelectChat, setMuteSelectChat] = useState<{ chatId: string; name: string } | null>(null);
   const [reportingGroup, setReportingGroup] = useState<{ groupId: string; groupName: string } | null>(null);

@@ -123,6 +123,8 @@ interface CallScreenProps {
   call: ActiveCall;
   currentUser: { _id: string; username: string; avatar?: string };
   connected: boolean;
+  peerPresent?: boolean;
+  connectionError?: string | null;
   duration: number;
   onMinimize: () => void;
   onLeave: () => void;
@@ -133,6 +135,8 @@ export const CallScreen = ({
   call,
   currentUser,
   connected,
+  peerPresent,
+  connectionError,
   duration,
   onMinimize,
   onLeave,
@@ -184,8 +188,12 @@ export const CallScreen = ({
   }, [participants, screenSharing, localScreenStream]);
 
   const localHasVideo = camEnabled && localStream && localStream.getVideoTracks().length > 0;
-  const statusText = !connected
-    ? 'Ringing…'
+  const statusText = connectionError
+    ? 'Connection failed'
+    : !connected
+    ? peerPresent
+      ? 'Connecting…'
+      : 'Ringing…'
     : screenShares.length > 0
     ? `${formatCallDuration(duration)} • Screen sharing`
     : formatCallDuration(duration);
@@ -371,10 +379,10 @@ export const CallScreen = ({
           <View style={styles.topBarBtn} />
         </View>
 
-        {mediaError && (
+        {(mediaError || connectionError) && (
           <View style={styles.errorChip}>
             <Feather name="alert-circle" size={13} color="#f87171" />
-            <Text style={styles.errorChipText}>{mediaError}</Text>
+            <Text style={styles.errorChipText}>{mediaError || connectionError}</Text>
           </View>
         )}
 

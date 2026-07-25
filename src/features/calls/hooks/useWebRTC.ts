@@ -33,6 +33,10 @@ interface PeerRecord {
   screenStreamId: string | null;
   micEnabled: boolean;
   camEnabled: boolean;
+  /** True once ICE has actually established a path and media can flow. */
+  mediaConnected: boolean;
+  /** True when ICE gave up — usually no reachable route without a TURN relay. */
+  mediaFailed: boolean;
   audioSender: any | null;
   camSender: any | null;
   screenSender: any | null;
@@ -111,6 +115,8 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
   const [speakerOn, setSpeakerOn] = useState(withVideo);
   const [ready, setReady] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaConnected, setMediaConnected] = useState(false);
+  const [connectionFailed, setConnectionFailed] = useState(false);
 
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTransientError = useCallback((msg: string) => {
@@ -180,6 +186,22 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     setParticipants(list);
   }, []);
 
+  // Whether media can actually flow, as opposed to whether signaling produced a
+  // peer record. Without this the call screen reports "connected" the instant
+  // the other side is discovered, even if ICE never finds a route.
+  const syncConnection = useCallback(() => {
+    let anyConnected = false;
+    let anyPeer = false;
+    let allFailed = true;
+    peersRef.current.forEach((peer) => {
+      anyPeer = true;
+      if (peer.mediaConnected) anyConnected = true;
+      if (!peer.mediaFailed) allFailed = false;
+    });
+    setMediaConnected(anyConnected);
+    setConnectionFailed(anyPeer && allFailed && !anyConnected);
+  }, []);
+
   const broadcastState = useCallback(() => {
     sendSignal({ kind: 'state', ...identityPayload() });
   }, [sendSignal, identityPayload]);
@@ -207,8 +229,9 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
       } catch {}
       peersRef.current.delete(sid);
       syncPeers();
+      syncConnection();
     },
-    [syncPeers]
+    [syncPeers, syncConnection]
   );
 
   const createPeer = useCallback(
@@ -236,6 +259,8 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         screenStreamId: msg.screenStreamId ?? null,
         micEnabled: msg.micEnabled ?? true,
         camEnabled: msg.camEnabled ?? false,
+        mediaConnected: false,
+        mediaFailed: false,
         audioSender: null,
         camSender: null,
         screenSender: null,
@@ -275,12 +300,24 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         }
       };
 
+      const trackConnection = () => {
+        // connectionState is the aggregate signal; fall back to the ICE state
+        // on engines that do not surface it.
+        const state = pc.connectionState || pc.iceConnectionState;
+        peer.mediaConnected = state === 'connected' || state === 'completed';
+        peer.mediaFailed = state === 'failed';
+        syncConnection();
+      };
+
+      pc.onconnectionstatechange = trackConnection;
+
       pc.oniceconnectionstatechange = () => {
         if (pc.iceConnectionState === 'failed') {
           try {
             pc.restartIce();
           } catch {}
         }
+        trackConnection();
       };
 
       pc.ontrack = (e: any) => {
@@ -313,9 +350,10 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
 
       peersRef.current.set(theirSid, peer);
       syncPeers();
+      syncConnection();
       return peer;
     },
-    [destroyPeer, sendSignal, syncPeers, identityPayload]
+    [destroyPeer, sendSignal, syncPeers, syncConnection, identityPayload]
   );
 
   const handleSignal = useCallback(
@@ -686,6 +724,8 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
     speakerOn,
     ready,
     mediaError,
+    mediaConnected,
+    connectionFailed,
     toggleMic,
     toggleCamera,
     toggleScreenShare,

@@ -4,22 +4,60 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { apiClient } from '../../api/client';
 
+const ACCENT = '#6366F1';
+const BUZZ = [0, 250, 250, 250];
+
 export async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== 'android') return;
 
-  await Notifications.setNotificationChannelAsync('default', {
+  await Notifications.setNotificationChannelGroupAsync('messages', {
     name: 'Messages',
+  });
+  await Notifications.setNotificationChannelGroupAsync('calls_requests', {
+    name: 'Calls & requests',
+  });
+
+  await Notifications.setNotificationChannelAsync('messages_direct', {
+    name: 'Direct messages',
+    groupId: 'messages',
     importance: Notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#6366F1',
+    vibrationPattern: BUZZ,
+    lightColor: ACCENT,
+    sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync('messages_group', {
+    name: 'Group messages',
+    groupId: 'messages',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: BUZZ,
+    lightColor: ACCENT,
+    sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync('chat_requests', {
+    name: 'Chat requests',
+    groupId: 'calls_requests',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: BUZZ,
+    lightColor: ACCENT,
+    sound: 'default',
   });
 
   await Notifications.setNotificationChannelAsync('calls', {
     name: 'Calls',
+    groupId: 'calls_requests',
     importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#6366F1',
+    vibrationPattern: BUZZ,
+    lightColor: ACCENT,
     sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync('default', {
+    name: 'Other',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: BUZZ,
+    lightColor: ACCENT,
   });
 }
 

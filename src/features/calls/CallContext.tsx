@@ -12,6 +12,8 @@ import { wsClient } from '../../api/ws-client';
 import { chatApi } from '../chat/api';
 import { useAuthContext } from '../auth/context/AuthContext';
 import { webrtcAvailable } from './webrtc';
+import { ensureCallPermissions } from './permissions';
+import { dismissCallNotification } from '../notifications/dismiss';
 import { IncomingCallOverlay } from './components/IncomingCallOverlay';
 import { CallSession } from './components/CallSession';
 
@@ -35,11 +37,21 @@ export interface StartCallParams {
   type: 'voice' | 'video';
 }
 
+export interface JoinCallParams {
+  callId: string;
+  chatId: string;
+  type: 'voice' | 'video';
+  remoteName?: string;
+  remoteAvatar?: string;
+  remoteId?: string;
+}
+
 interface CallContextData {
   incomingCall: any | null;
   activeCall: ActiveCall | null;
   minimized: boolean;
   startCall: (params: StartCallParams) => Promise<void>;
+  joinCall: (params: JoinCallParams) => Promise<void>;
   acceptCall: () => Promise<void>;
   declineCall: () => void;
   leaveCall: () => void;
@@ -91,6 +103,7 @@ export const CallProvider = ({ children }: PropsWithChildren) => {
     };
 
     const handleCallEnded = (data: any) => {
+      if (data?.call_id) dismissCallNotification(data.call_id);
       if (incomingCallRef.current?.call_id === data?.call_id) {
         setIncomingCall(null);
       }
@@ -111,20 +124,34 @@ export const CallProvider = ({ children }: PropsWithChildren) => {
     };
   }, [user?._id]);
 
+  const readyForCall = useCallback(async (type: 'voice' | 'video') => {
+    if (!webrtcAvailable) {
+      Alert.alert(
+        'Calls unavailable',
+        'Calls need a development build of the app — they do not work in Expo Go.'
+      );
+      return false;
+    }
+    const perms = await ensureCallPermissions(type === 'video');
+    if (!perms.granted) {
+      Alert.alert(
+        'Microphone blocked',
+        'VokiToki needs microphone access to place and receive calls. Enable it in Settings → Apps → VokiToki → Permissions.'
+      );
+      return false;
+    }
+    return true;
+  }, []);
+
   const startCall = useCallback(
     async ({ chatId, calleeId, calleeName, calleeAvatar, type }: StartCallParams) => {
       if (!user || activeCallRef.current) return;
-      if (!webrtcAvailable) {
-        Alert.alert(
-          'Calls unavailable',
-          'Calls need a development build of the app — they do not work in Expo Go.'
-        );
-        return;
-      }
       if (!calleeId && !chatId) {
         Alert.alert('Call failed', 'Cannot determine who to call.');
         return;
       }
+      if (!(await readyForCall(type))) return;
+      if (activeCallRef.current) return;
 
       const callId = makeCallId();
       setMinimized(false);
@@ -151,24 +178,53 @@ export const CallProvider = ({ children }: PropsWithChildren) => {
         Alert.alert('Call failed', err?.response?.data?.error || 'Could not start the call.');
       }
     },
-    [user]
+    [user, readyForCall]
+  );
+
+  const joinCall = useCallback(
+    async ({ callId, chatId, type, remoteName, remoteAvatar, remoteId }: JoinCallParams) => {
+      if (!user || !callId) return;
+      if (activeCallRef.current?.callId === callId) return;
+      if (activeCallRef.current) return;
+      if (!(await readyForCall(type))) return;
+      if (activeCallRef.current) return;
+
+      if (incomingCallRef.current?.call_id === callId) setIncomingCall(null);
+      dismissCallNotification(callId);
+
+      setMinimized(false);
+      setActiveCall({
+        callId,
+        type,
+        remoteUser: { username: remoteName || 'User', avatar: remoteAvatar, id: remoteId },
+        isIncoming: true,
+        chatId,
+      });
+
+      try {
+        await chatApi.acceptCall(callId, user._id);
+      } catch (err: any) {
+        setActiveCall(null);
+        Alert.alert(
+          'Call unavailable',
+          err?.response?.data?.error || 'This call has already ended.'
+        );
+      }
+    },
+    [user, readyForCall]
   );
 
   const acceptCall = useCallback(async () => {
     const call = incomingCallRef.current;
     if (!call || !user) return;
-    if (!webrtcAvailable) {
-      Alert.alert(
-        'Calls unavailable',
-        'Calls need a development build of the app — they do not work in Expo Go.'
-      );
-      return;
-    }
+    const type = call.call_type === 'video' ? 'video' : 'voice';
+    if (!(await readyForCall(type))) return;
 
+    dismissCallNotification(call.call_id);
     setMinimized(false);
     setActiveCall({
       callId: call.call_id,
-      type: call.call_type === 'video' ? 'video' : 'voice',
+      type,
       remoteUser: {
         username: call.caller_name || 'User',
         avatar: call.caller_avatar,
@@ -185,12 +241,13 @@ export const CallProvider = ({ children }: PropsWithChildren) => {
       setActiveCall(null);
       Alert.alert('Call failed', err?.response?.data?.error || 'Could not join the call.');
     }
-  }, [user]);
+  }, [user, readyForCall]);
 
   const declineCall = useCallback(() => {
     const call = incomingCallRef.current;
     if (!call || !user) return;
     chatApi.rejectCall(call.call_id, user._id).catch(() => {});
+    dismissCallNotification(call.call_id);
     setIncomingCall(null);
   }, [user]);
 
@@ -213,6 +270,7 @@ export const CallProvider = ({ children }: PropsWithChildren) => {
         activeCall,
         minimized,
         startCall,
+        joinCall,
         acceptCall,
         declineCall,
         leaveCall,

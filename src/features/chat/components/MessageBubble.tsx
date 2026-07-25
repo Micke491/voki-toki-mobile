@@ -26,7 +26,7 @@ interface MessageBubbleProps {
   onPressMedia?: (url: string, type: 'image' | 'video') => void;
   onToggleReaction?: (emoji: string) => void;
   onOpenReactions?: () => void;
-  onCallAction?: (type: 'voice' | 'video') => void;
+  onCallAction?: (type: 'voice' | 'video', callId?: string) => void;
   recipientUsername?: string;
   onViewStory?: (storyId: string) => void;
 }
@@ -261,7 +261,11 @@ export const MessageBubble = ({ message, isOwn, showSenderName, showAvatar, curr
             isOwn={isOwn}
             onPress={() => {
               const t = (message.text || '').toLowerCase();
-              onCallAction?.(t.includes('video') ? 'video' : 'voice');
+              const ended = t.includes('ended');
+              onCallAction?.(
+                t.includes('video') ? 'video' : 'voice',
+                ended ? undefined : message.mediaPublicId
+              );
             }}
           />
         )}

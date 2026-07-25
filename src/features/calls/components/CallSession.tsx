@@ -30,13 +30,22 @@ export const CallSession = ({
     withVideo: call.type === 'video',
   });
 
-  const connected = rtc.participants.length > 0;
+  // Two different questions, previously conflated: is anyone else in the call
+  // (signaling), and is media actually flowing (ICE)? Reporting the first as
+  // "connected" made a call that never established a route look live.
+  const peerPresent = rtc.participants.length > 0;
+  const connected = rtc.mediaConnected;
   const [hasConnected, setHasConnected] = useState(false);
+  const [hasPeer, setHasPeer] = useState(false);
   const [duration, setDuration] = useState(0);
   const startedAtRef = useRef<number | null>(null);
 
   const onLeaveRef = useRef(onLeave);
   onLeaveRef.current = onLeave;
+
+  useEffect(() => {
+    if (peerPresent && !hasPeer) setHasPeer(true);
+  }, [peerPresent, hasPeer]);
 
   useEffect(() => {
     if (connected && !hasConnected) {
@@ -47,17 +56,31 @@ export const CallSession = ({
 
   // Everyone else left after the call was live: hang up on this side too.
   useEffect(() => {
-    if (hasConnected && !connected) {
+    if (hasPeer && !peerPresent) {
       onLeaveRef.current();
     }
-  }, [hasConnected, connected]);
+  }, [hasPeer, peerPresent]);
 
   // Nobody answered within 30s: give up (also tells the server to end the call).
   useEffect(() => {
-    if (connected || hasConnected) return;
+    if (peerPresent || hasPeer) return;
     const timer = setTimeout(() => onLeaveRef.current(), 30000);
     return () => clearTimeout(timer);
-  }, [connected, hasConnected]);
+  }, [peerPresent, hasPeer]);
+
+  // Answered, but ICE never found a route. Left alone this shows as a call that
+  // is "connected" and completely silent, so say what actually happened.
+  const [routeTimedOut, setRouteTimedOut] = useState(false);
+  useEffect(() => {
+    if (!hasPeer || hasConnected) return;
+    const timer = setTimeout(() => setRouteTimedOut(true), 20000);
+    return () => clearTimeout(timer);
+  }, [hasPeer, hasConnected]);
+
+  const connectionError =
+    rtc.connectionFailed || routeTimedOut
+      ? 'Could not connect the call. Your networks could not reach each other.'
+      : null;
 
   useEffect(() => {
     if (!hasConnected) return;
@@ -88,6 +111,8 @@ export const CallSession = ({
       call={call}
       currentUser={currentUser}
       connected={connected}
+      peerPresent={peerPresent}
+      connectionError={connectionError}
       duration={duration}
       onMinimize={onMinimize}
       onLeave={onLeave}
