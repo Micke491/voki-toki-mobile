@@ -301,11 +301,13 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
       };
 
       const trackConnection = () => {
-        // connectionState is the aggregate signal; fall back to the ICE state
-        // on engines that do not surface it.
-        const state = pc.connectionState || pc.iceConnectionState;
-        peer.mediaConnected = state === 'connected' || state === 'completed';
-        peer.mediaFailed = state === 'failed';
+        // connectionState is the aggregate signal, but it is not reported
+        // reliably on every engine, so an established ICE transport counts as
+        // connected too.
+        const ice = pc.iceConnectionState;
+        peer.mediaConnected =
+          pc.connectionState === 'connected' || ice === 'connected' || ice === 'completed';
+        peer.mediaFailed = pc.connectionState === 'failed';
         syncConnection();
       };
 
