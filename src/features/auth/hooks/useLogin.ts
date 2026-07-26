@@ -37,6 +37,8 @@ export const useLogin = () => {
       router.replace('/tabs');
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Login failed. Please try again.');
+      setEmail('');
+      setPassword('');
     } finally {
       setLoading(false);
     }
@@ -67,6 +69,7 @@ export const useLogin = () => {
       router.replace('/tabs');
     } catch (err: any) {
       setError(err.response?.data?.error || err.response?.data?.message || err.message || 'Verification failed.');
+      setTwoFaCode('');
     } finally {
       setLoading(false);
     }

@@ -626,6 +626,13 @@ export function useWebRTC({ callId, currentUser, withVideo }: UseWebRTCOptions) 
         if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
           iceServersRef.current = data.iceServers;
         }
+
+        if (data.hasRelay === false) {
+          console.warn(
+            '[calls] No TURN relay configured on the backend — calls to peers on ' +
+              'another network (e.g. desktop <-> phone on mobile data) will not connect.'
+          );
+        }
       } catch {
         // Keep the fallback STUN config.
       }

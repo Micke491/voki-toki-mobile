@@ -46,7 +46,12 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401) {
+    // A 401 from an /auth/ endpoint means the submitted credentials were wrong
+    // (bad password, bad 2FA code) — that is an answer for the form to render,
+    // not a dead session. Resetting the route there remounts the login screen
+    // and throws away the error the caller is about to set.
+    const isAuthEndpoint = (error.config?.url || '').includes('/auth/');
+    if (error.response?.status === 401 && !isAuthEndpoint) {
       await removeToken();
       router.replace('/auth/login');
     }

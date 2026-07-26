@@ -230,7 +230,7 @@ export const chatApi = {
     return response.data;
   },
 
-  getIceServers: async (): Promise<{ iceServers: any[] }> => {
+  getIceServers: async (): Promise<{ iceServers: any[]; hasRelay?: boolean }> => {
     const response = await apiClient.get('/call/ice-servers');
     return response.data;
   },
