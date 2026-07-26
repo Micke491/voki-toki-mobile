@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { getToken, removeToken, getTrustedDeviceToken } from '../utils/storage';
 import { router } from 'expo-router';
+import { emitRestriction } from '../features/moderation/restrictionEvents';
 
 const buildDeviceName = (): string => {
   const model = Device.modelName || Device.deviceName || 'Mobile Device';
@@ -55,6 +56,15 @@ apiClient.interceptors.response.use(
       await removeToken();
       router.replace('/auth/login');
     }
+
+    // A moderator ban or timeout comes back as a 403 on whatever the user was
+    // trying to do. Announce it so the banner updates without every call site
+    // having to know about moderation.
+    const data = error.response?.data;
+    if (error.response?.status === 403 && (data?.restricted || data?.banned)) {
+      emitRestriction(data);
+    }
+
     return Promise.reject(error);
   }
 );

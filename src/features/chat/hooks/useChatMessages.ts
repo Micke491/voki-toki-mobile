@@ -4,6 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../api';
 import { Message } from '../types';
+import { alertRestriction, isRestrictionError } from '../../moderation/restrictionError';
 
 interface UseChatMessagesProps {
   chatId: string;
@@ -437,7 +438,14 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         text: trimmed,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
-    } catch {
+    } catch (error) {
+      // A ban or timeout rejects this every time it is retried, so it must not
+      // enter the offline queue.
+      if (isRestrictionError(error)) {
+        setMessages(prev => prev.filter(m => m._id !== tempId));
+        alertRestriction(error);
+        return;
+      }
       offlineQueueRef.current.push({ tempId, text: trimmed });
       updateOfflineStorage(offlineQueueRef.current);
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...m, status: 'failed' } : m)));
@@ -527,7 +535,12 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         mediaPublicId,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
-    } catch {
+    } catch (error) {
+      if (isRestrictionError(error)) {
+        setMessages(prev => prev.filter(m => m._id !== tempId));
+        alertRestriction(error);
+        return;
+      }
       offlineQueueRef.current.push({ tempId, text: caption, mediaUrl: media.uri, mediaType: media.type, mimeType: media.mimeType, fileName: media.fileName });
       updateOfflineStorage(offlineQueueRef.current);
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...m, status: 'failed' } : m)));
@@ -549,7 +562,13 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
           setMessages(prev => prev.map(m => (m._id === item.tempId ? { ...message, status: 'sent' } : m)));
           offlineQueueRef.current = offlineQueueRef.current.filter(i => i.tempId !== item.tempId);
           await updateOfflineStorage(offlineQueueRef.current);
-        } catch {}
+        } catch (error) {
+          if (isRestrictionError(error)) {
+            setMessages(prev => prev.filter(m => m._id !== item.tempId));
+            offlineQueueRef.current = offlineQueueRef.current.filter(i => i.tempId !== item.tempId);
+            await updateOfflineStorage(offlineQueueRef.current);
+          }
+        }
       }
     }
   }, [chatId, currentUserId, setMessages, updateOfflineStorage]);

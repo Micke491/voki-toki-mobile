@@ -31,5 +31,15 @@ export interface User {
   storyPrivacy?: string;
   botPersona?: BotPersona;
   notificationPrefs?: NotificationPrefs;
+  isBanned?: boolean;
+  timeoutUntil?: string | null;
   createdAt?: string;
+}
+
+export interface Announcement {
+  _id: string;
+  title: string;
+  body: string;
+  createdByUsername: string;
+  sentAt?: string;
 }
