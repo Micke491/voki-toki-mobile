@@ -97,7 +97,6 @@ export const ChatListScreen = () => {
   }, [tab]);
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
   const [muteSelectChat, setMuteSelectChat] = useState<{ chatId: string; name: string } | null>(null);
-  const [reportingGroup, setReportingGroup] = useState<{ groupId: string; groupName: string } | null>(null);
 
   const { storyGroups, fetchStories, markViewed, deleteStory, hasUnviewedStories } = useStories(user?._id);
   const [viewingGroupIndex, setViewingGroupIndex] = useState<number | null>(null);
@@ -462,22 +461,6 @@ export const ChatListScreen = () => {
                     </>
                   )}
 
-                  {selectedChatForMenu.isGroupChat && (
-                    <>
-                      <View style={styles.menuDivider} />
-                      <TouchableOpacity style={styles.menuItem} onPress={() => {
-                        setReportingGroup({
-                          groupId: selectedChatForMenu._id,
-                          groupName: selectedChatForMenu.name || 'Group'
-                        });
-                        setSelectedChatForMenu(null);
-                      }}>
-                        <Feather name="alert-triangle" size={20} color="#f59e0b" />
-                        <Text style={[styles.menuItemText, { color: '#f59e0b' }]}>Report Group</Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-
                   <View style={styles.menuDivider} />
 
                   {selectedChatForMenu.isGroupChat ? (
@@ -595,15 +578,6 @@ export const ChatListScreen = () => {
         targetId={reportData?.userId || ''}
         targetType="user"
         targetName={reportData?.username}
-      />
-
-      {/* Report Group Modal */}
-      <ReportModal
-        isOpen={!!reportingGroup}
-        onClose={() => setReportingGroup(null)}
-        targetId={reportingGroup?.groupId || ''}
-        targetType="group"
-        targetName={reportingGroup?.groupName}
       />
 
       {/* Story Viewer */}

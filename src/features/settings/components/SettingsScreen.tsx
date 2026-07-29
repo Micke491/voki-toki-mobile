@@ -97,6 +97,7 @@ export function SettingsScreen() {
             <Divider />
             <Row
               icon="cpu"
+              materialIcon="auto-awesome"
               tint="#ec4899"
               title="AI Assistant"
               subtitle={`Persona: ${PERSONA_LABELS[user?.botPersona || 'default']}`}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { useTheme } from '../../theme/ThemeContext';
@@ -84,7 +84,7 @@ export function AIPersonaScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.introIcon}
           >
-            <Feather name="cpu" size={22} color="#fff" />
+            <MaterialIcons name="auto-awesome" size={22} color="#fff" />
           </LinearGradient>
           <View style={styles.introTextWrap}>
             <Text style={[styles.introTitle, { color: colors.textPrimary }]}>Choose a personality</Text>

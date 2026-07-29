@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, SectionList, TouchableOpacity, ActivityIndicator,
   Alert, RefreshControl, TextInput, Modal, TouchableWithoutFeedback, Platform,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { botApi } from '../api';
@@ -166,7 +166,7 @@ export function BotListScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.avatar}
       >
-        <Feather name="cpu" size={19} color="#fff" />
+        <MaterialIcons name="auto-awesome" size={19} color="#fff" />
       </LinearGradient>
       <View style={styles.chatInfo}>
         <View style={styles.chatTitleRow}>
@@ -200,7 +200,7 @@ export function BotListScreen() {
               end={{ x: 1, y: 1 }}
               style={styles.headerIcon}
             >
-              <Feather name="cpu" size={17} color="#fff" />
+              <MaterialIcons name="auto-awesome" size={17} color="#fff" />
             </LinearGradient>
             <View>
               <Text style={styles.headerTitle}>AI Assistant</Text>

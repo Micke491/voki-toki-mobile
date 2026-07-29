@@ -65,7 +65,7 @@ export const botApi = {
    */
   sendMessageStream: async (
     chatId: string,
-    payload: { text: string; attachments?: OutgoingBotAttachment[] },
+    payload: { text: string; attachments?: OutgoingBotAttachment[]; fromIndex?: number },
     callbacks: StreamCallbacks,
     signal?: AbortSignal
   ): Promise<void> => {

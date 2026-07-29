@@ -2,7 +2,7 @@ import React, { PropsWithChildren, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Switch, Animated, Platform,
 } from 'react-native';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme, ThemeColors } from '../../theme/ThemeContext';
 
@@ -94,19 +94,25 @@ export function Divider() {
 
 interface IconChipProps {
   icon: keyof typeof Feather.glyphMap;
+  materialIcon?: keyof typeof MaterialIcons.glyphMap;
   tint: string;
 }
 
-export function IconChip({ icon, tint }: IconChipProps) {
+export function IconChip({ icon, materialIcon, tint }: IconChipProps) {
   return (
     <View style={[sectionStyles.iconChip, { backgroundColor: `${tint}22` }]}>
-      <Feather name={icon} size={17} color={tint} />
+      {materialIcon ? (
+        <MaterialIcons name={materialIcon} size={17} color={tint} />
+      ) : (
+        <Feather name={icon} size={17} color={tint} />
+      )}
     </View>
   );
 }
 
 interface RowProps {
   icon: keyof typeof Feather.glyphMap;
+  materialIcon?: keyof typeof MaterialIcons.glyphMap;
   tint?: string;
   title: string;
   subtitle?: string;
@@ -117,12 +123,12 @@ interface RowProps {
   disabled?: boolean;
 }
 
-export function Row({ icon, tint, title, subtitle, onPress, right, chevron, danger, disabled }: RowProps) {
+export function Row({ icon, materialIcon, tint, title, subtitle, onPress, right, chevron, danger, disabled }: RowProps) {
   const { colors } = useTheme();
   const effectiveTint = danger ? colors.danger : (tint || colors.accent);
   const content = (
     <View style={[sectionStyles.row, disabled && { opacity: 0.5 }]}>
-      <IconChip icon={icon} tint={effectiveTint} />
+      <IconChip icon={icon} materialIcon={materialIcon} tint={effectiveTint} />
       <View style={sectionStyles.rowTextWrap}>
         <Text style={[sectionStyles.rowTitle, { color: danger ? colors.danger : colors.textPrimary }]} numberOfLines={1}>
           {title}

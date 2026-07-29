@@ -237,6 +237,7 @@ export const StoryComposer = ({ visible, onClose, onPosted }: StoryComposerProps
                 ref={cameraRef}
                 style={styles.flex}
                 facing={facing}
+                mirror
                 enableTorch={torchOn}
                 mode={mode === 'video' ? 'video' : 'picture'}
               />

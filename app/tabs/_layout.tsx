@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 
 export default function TabLayout() {
   return (
@@ -25,7 +25,7 @@ export default function TabLayout() {
         name="bot" 
         options={{ 
           title: 'AI',
-          tabBarIcon: ({ color, size }) => <Feather name="cpu" size={size} color={color} />
+          tabBarIcon: ({ color, size }) => <MaterialIcons name="auto-awesome" size={size} color={color} />
         }} 
       />
       <Tabs.Screen 

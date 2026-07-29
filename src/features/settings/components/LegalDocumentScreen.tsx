@@ -10,7 +10,7 @@ type Document = { title: string; updated: string; icon: keyof typeof Feather.gly
 
 const DOCUMENTS: Record<DocumentType, Document> = {
   terms: {
-    title: 'Terms of Service', updated: 'Last updated: July 20, 2026', icon: 'file-text', tint: '#3b82f6',
+    title: 'Terms of Service', updated: 'Last updated: July 30, 2026', icon: 'file-text', tint: '#3b82f6',
     sections: [
       { title: '1. Acceptance of Terms', paragraphs: ['By creating an account or using VokiToki, you agree to these Terms and our Privacy Policy. If you do not agree, do not use the service.'] },
       { title: '2. Operator', paragraphs: ['VokiToki is an independent, personal project operated by Nikola Micić, based in Serbia.'] },
@@ -18,19 +18,47 @@ const DOCUMENTS: Record<DocumentType, Document> = {
       { title: '4. Acceptable Use', paragraphs: ['You must not use VokiToki to:'], bullets: ['Harass, threaten, abuse, impersonate, exploit, or harm others.', 'Send spam, unauthorized advertising, or illegal, infringing, or harmful material.', 'Evade a restriction or interfere with the security or operation of the service.'] },
       { title: '5. Moderation and Enforcement', paragraphs: ['We may investigate reports and remove content, limit features, mute, suspend, or permanently terminate an account that violates these Terms or creates a safety or security risk. We may act immediately for serious violations.'] },
       { title: '6. Your Content', paragraphs: ['You keep ownership of content you submit. You give VokiToki the limited permission needed to host, process, transmit, display, and store that content to operate and improve the service, enforce these Terms, and keep users safe.'] },
-      { title: '7. Availability and Changes', paragraphs: ['This is a personal project run without a dedicated support team. Features may change, be suspended, or be discontinued at any time. We may update these Terms and will announce material changes through the service.'] },
-      { title: '8. Disclaimers and Liability', paragraphs: ['VokiToki is provided on an “as available” basis, without warranties of any kind. To the extent permitted by law, we do not guarantee uninterrupted, error-free, or completely secure service. Nothing in these Terms limits rights that cannot legally be limited.'] },
-      { title: '9. Governing Law', paragraphs: ['These Terms are governed by the laws of Serbia, without regard to conflict-of-law principles.'] },
+      {
+        title: '7. AI Assistant',
+        paragraphs: [
+          'The AI Assistant is an optional feature that generates responses using a third-party model (Google Gemini). Its output is produced automatically, is not reviewed by a human, and may be inaccurate, incomplete, outdated, biased, or entirely fabricated — including content that looks confident, cites sources, or appears authoritative.',
+          'It is provided for general information and convenience only. By using it, you accept that:',
+        ],
+        bullets: [
+          'It is not professional advice. Do not rely on it for medical, legal, financial, tax, safety, security, employment, or any other decision where being wrong could cause harm or loss.',
+          'You must verify anything important with a qualified professional or an authoritative source before acting on it.',
+          'You are solely responsible for how you use AI output, for any content you generate with it, and for any consequences of relying on it.',
+          'AI answers do not come from us, are not our statements, opinions, or recommendations, and are not endorsed or verified by us.',
+          'You must not submit sensitive, confidential, or third-party personal information to the AI Assistant.',
+          'The feature may be rate-limited, changed, or withdrawn at any time.',
+        ],
+      },
+      { title: '8. Availability and Changes', paragraphs: ['This is a personal project run without a dedicated support team. Features may change, be suspended, or be discontinued at any time. We may update these Terms and will announce material changes through the service.'] },
+      {
+        title: '9. Disclaimers and Liability',
+        paragraphs: [
+          'VokiToki is provided “as is” and “as available”, without warranties of any kind, express or implied, including any implied warranties of merchantability, fitness for a particular purpose, non-infringement, or accuracy. To the extent permitted by law, we do not guarantee uninterrupted, error-free, or completely secure service, and we specifically make no warranty that AI Assistant output is accurate, reliable, complete, current, or fit for any purpose.',
+          'To the fullest extent permitted by law, we are not liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, nor for any loss of profits, data, goodwill, business, or opportunity, arising from or relating to your use of VokiToki or your reliance on AI Assistant output — including any decision, action, or omission based on it — even if we were advised of the possibility.',
+          'Nothing in these Terms excludes or limits liability for fraud, death or personal injury caused by negligence, or any other liability that cannot legally be excluded or limited, and nothing limits rights that cannot legally be limited. Where liability cannot be excluded, it is limited to the minimum permitted by law.',
+        ],
+      },
+      { title: '10. Governing Law', paragraphs: ['These Terms are governed by the laws of Serbia, without regard to conflict-of-law principles.'] },
     ],
   },
   privacy: {
-    title: 'Privacy Policy', updated: 'Last updated: July 20, 2026', icon: 'shield', tint: '#6366f1',
+    title: 'Privacy Policy', updated: 'Last updated: July 30, 2026', icon: 'shield', tint: '#6366f1',
     sections: [
       { title: '1. Who We Are', paragraphs: ['VokiToki is a personal project operated by Nikola Micić, based in Serbia. This is not a commercial company; there is no dedicated support or privacy contact address at this time.'] },
       { title: '2. Information We Collect', paragraphs: ['We collect account and profile information such as username, email address, password hash, display name, bio, avatar, links, location and gender if you choose to provide them. We also process messages, media, stories, reactions, read receipts, device/session information, notification tokens, reports, and service logs needed to operate and secure VokiToki.'] },
       { title: '3. How We Use Information', paragraphs: ['We use information to provide messaging, profiles, stories, calls, notifications, account security, moderation, abuse prevention, and service improvement.'] },
       { title: '4. Service Providers and Sharing', paragraphs: ['We use MongoDB for application data, Cloudinary for media storage, Firebase Cloud Messaging for notifications, Brevo for transactional email, Google STUN/TURN services where configured for call connectivity, Giphy for GIF search, and Google Gemini for the optional AI Assistant. We may also disclose information when required by law or to protect users, the public, or our rights.'] },
-      { title: '5. AI Assistant', paragraphs: ['When you use the optional AI Assistant, your prompts and any files you choose to send to it are transmitted to Google Gemini to generate a response. Do not send sensitive information to the AI Assistant unless you understand and accept this processing. AI responses may be inaccurate.'] },
+      {
+        title: '5. AI Assistant',
+        paragraphs: [
+          'When you use the optional AI Assistant, your prompts and any files you choose to send to it are transmitted to Google Gemini to generate a response, and are processed under Google’s own terms and privacy policy in addition to ours. Do not send sensitive, confidential, or third-party personal information to the AI Assistant unless you understand and accept this processing.',
+          'Your AI conversations are stored in your account so you can revisit them, and you can delete any AI chat at any time. AI responses are generated automatically without human review and may be inaccurate, incomplete, or fabricated; they are not professional advice and must not be relied on for important decisions. See the AI Assistant section of the Terms of Service for the full disclaimer and limits on liability.',
+        ],
+      },
       { title: '6. Calls and Location', paragraphs: ['Voice and video calls use WebRTC and are designed to connect participants directly where possible. Call setup signaling passes through our service and connectivity may use STUN or TURN services. We do not intentionally record call audio or video. If you choose to add location to your profile, the app requests location permission and uses it for that profile feature.'] },
       { title: '7. Retention and Account Deletion', paragraphs: ['We retain personal data only for as long as needed for the purposes described here. When you delete an account, the account record is deleted; messages or media already delivered to other users may remain in their conversations, and limited information may be retained where necessary for security, abuse investigations, backups, legal obligations, or legal claims.'] },
       { title: '8. Your Rights', paragraphs: ['Depending on where you live, you may have rights to request access, correction, deletion, restriction, objection, or portability of your personal data. As this is a personal project without a dedicated contact channel today, these requests can currently only be handled through in-app account and content controls.'] },
