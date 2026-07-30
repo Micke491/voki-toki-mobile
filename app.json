@@ -3,7 +3,7 @@
     "name": "VokiToki",
     "slug": "chat-app-mobile",
     "scheme": "vokitoki",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -45,7 +45,7 @@
       ],
       "package": "com.vokitoki.app",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 11
+      "versionCode": 12
     },
     "web": {
       "favicon": "./assets/favicon.png"

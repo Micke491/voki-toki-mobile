@@ -589,7 +589,8 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior="padding"
+      keyboardVerticalOffset={0}
     >
       {/* Header */}
       <View style={styles.header}>

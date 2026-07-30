@@ -4,8 +4,9 @@ import { Feather, MaterialIcons } from '@expo/vector-icons';
 export default function TabLayout() {
   return (
     <Tabs 
-      screenOptions={{ 
+      screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           backgroundColor: '#09090b',
           borderTopColor: '#27272a',

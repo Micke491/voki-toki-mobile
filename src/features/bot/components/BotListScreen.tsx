@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, SectionList, TouchableOpacity, ActivityIndicator,
-  Alert, RefreshControl, TextInput, Modal, TouchableWithoutFeedback, Platform,
+  Alert, RefreshControl, TextInput, Modal, TouchableWithoutFeedback,
 } from 'react-native';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { botApi } from '../api';
 import { BotChat } from '../types';
 
@@ -55,6 +56,7 @@ function lastMessagePreview(chat: BotChat): string {
 
 export function BotListScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const hasLoadedRef = React.useRef(false);
   const [chats, setChats] = useState<BotChat[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,7 +193,7 @@ export function BotListScreen() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerTopRow}>
           <View style={styles.headerTitleWrap}>
             <LinearGradient
@@ -246,7 +248,7 @@ export function BotListScreen() {
           renderSectionHeader={({ section }) => (
             <Text style={styles.sectionHeader}>{section.title}</Text>
           )}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           stickySectionHeadersEnabled={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#2563eb" />
@@ -357,7 +359,6 @@ export function BotListScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#09090b' },
   header: {
-    paddingTop: Platform.OS === 'ios' ? 58 : 48,
     paddingBottom: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
@@ -405,7 +406,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  list: { padding: 16, paddingBottom: 90 },
+  list: { padding: 16 },
   sectionHeader: {
     fontSize: 11,
     fontWeight: '800',
