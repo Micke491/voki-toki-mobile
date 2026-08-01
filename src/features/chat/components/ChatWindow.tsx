@@ -3,12 +3,11 @@ import {
   View,
   Text,
   FlatList,
+  ScrollView,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Keyboard,
   Platform,
   ListRenderItemInfo,
   NativeSyntheticEvent,
@@ -43,6 +42,7 @@ import { dismissChatNotifications } from '../../notifications/dismiss';
 import { setActiveChat } from '../../notifications/activeChat';
 import { refreshBadge } from '../../notifications/badge';
 import { MediaViewer } from '../../../components/MediaViewer';
+import { KeyboardAvoider, useKeyboardVisible } from '../../../components/KeyboardAvoider';
 import { ReportModal } from '../../../components/ReportModal';
 import EmojiPicker from 'rn-emoji-keyboard';
 import { BlockStatus } from '../types';
@@ -121,18 +121,9 @@ export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWin
   const insets = useSafeAreaInsets();
   const { user } = useAuthContext();
   const [inputText, setInputText] = useState('');
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+  // The nav-bar inset only needs padding when the keyboard is closed — with it
+  // open the keyboard already covers that strip.
+  const keyboardVisible = useKeyboardVisible();
   const flatListRef = useRef<FlatList<ListItem>>(null);
   const shouldScrollRef = useRef(true);
   const isTypingRef = useRef(false);
@@ -737,11 +728,7 @@ export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWin
   const wallpaperColors = resolveWallpaperColors(user.defaultWallpaper);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior="padding"
-      keyboardVerticalOffset={0}
-    >
+    <KeyboardAvoider style={styles.container}>
       {wallpaperColors && (
         <LinearGradient
           colors={wallpaperColors}
@@ -836,11 +823,19 @@ export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWin
         )}
 
         {!isLoading && messages.length === 0 && !error && (
-          <View style={styles.emptyContainer}>
+          // Scrollable so the empty state simply recentres in whatever space is
+          // left when the keyboard opens instead of overflowing its container.
+          <ScrollView
+            style={styles.emptyScroll}
+            contentContainerStyle={styles.emptyContainer}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
             <Feather name="message-circle" size={40} color="#3f3f46" />
             <Text style={styles.emptyTitle}>No messages yet</Text>
             <Text style={styles.emptySubtitle}>Send a message to start the conversation</Text>
-          </View>
+          </ScrollView>
         )}
 
         {messages.length > 0 && (
@@ -1210,7 +1205,7 @@ export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWin
           mediaType={viewingMedia.type}
         />
       )}
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 };
 
@@ -1419,6 +1414,8 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#27272a',
+    // Keeps the header above the message area if its content ever overflows.
+    zIndex: 10,
   },
   headerButton: {
     width: 40,
@@ -1521,8 +1518,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
-  emptyContainer: {
+  emptyScroll: {
     flex: 1,
+  },
+  emptyContainer: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,

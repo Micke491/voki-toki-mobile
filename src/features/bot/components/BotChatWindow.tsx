@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  ActivityIndicator, KeyboardAvoidingView, Keyboard, Platform, Image, Alert, Animated,
+  ActivityIndicator, Platform, Image, Alert, Animated,
   Modal, TouchableWithoutFeedback, Share, ScrollView,
 } from 'react-native';
 import { Feather, MaterialIcons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ import { BotChat, BotMessage } from '../types';
 import { BotMarkdown } from './BotMarkdown';
 import { useBotAttachments } from '../hooks/useBotAttachments';
 import { useAuthContext } from '../../auth/context/AuthContext';
+import { KeyboardAvoider, useKeyboardVisible } from '../../../components/KeyboardAvoider';
 
 const SUGGESTIONS: { icon: keyof typeof Feather.glyphMap; text: string; tint: string }[] = [
   { icon: 'help-circle', text: 'What can you help me with?', tint: '#3b82f6' },
@@ -102,22 +103,9 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
   const { user } = useAuthContext();
   const isNewChat = chatId === 'new';
 
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-
-  useEffect(() => {
-    // The home-indicator/nav-bar inset only needs padding when the keyboard
-    // is closed — when it's open, the keyboard itself occupies that space
-    // and KeyboardAvoidingView already accounts for the keyboard's height,
-    // so adding insets.bottom on top of that double-pads the input bar.
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+  // The home-indicator/nav-bar inset only needs padding when the keyboard is
+  // closed — when it's open the keyboard itself occupies that strip.
+  const keyboardVisible = useKeyboardVisible();
 
   const [currentChatId, setCurrentChatId] = useState<string | null>(isNewChat ? null : chatId);
   const [chat, setChat] = useState<BotChat | null>(null);
@@ -587,11 +575,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
   const waitingFirstChunk = sending && !streamStarted;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior="padding"
-      keyboardVerticalOffset={0}
-    >
+    <KeyboardAvoider style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
@@ -629,7 +613,15 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
           <ActivityIndicator size="large" color="#2563eb" />
         </View>
       ) : showEmptyState ? (
-        <View style={styles.emptyState}>
+        // Scrollable so the greeting and suggestions stay reachable — and never
+        // spill over the header — once the keyboard halves the usable height.
+        <ScrollView
+          style={styles.emptyScroll}
+          contentContainerStyle={styles.emptyState}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
           <LinearGradient
             colors={['#2563eb', '#9333ea']}
             start={{ x: 0, y: 0 }}
@@ -657,7 +649,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
               </TouchableOpacity>
             ))}
           </View>
-        </View>
+        </ScrollView>
       ) : (
         <FlatList
           ref={flatListRef}
@@ -665,6 +657,8 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
           keyExtractor={(item, index) => item._id || `msg-${index}`}
           renderItem={renderMessage}
           contentContainerStyle={styles.messageList}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           ItemSeparatorComponent={() => <View style={styles.messageSeparator} />}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           ListFooterComponent={
@@ -895,7 +889,7 @@ export function BotChatWindow({ chatId }: { chatId: string }) {
           </View>
         </TouchableWithoutFeedback>
       </Modal>
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 
@@ -910,6 +904,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#27272a',
     backgroundColor: '#18181b',
+    // Keeps the header opaque and on top if the content below ever overflows.
+    zIndex: 10,
   },
   headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 6 },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -919,7 +915,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   /* Empty state */
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emptyScroll: { flex: 1 },
+  emptyState: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   emptyIcon: {
     width: 64,
     height: 64,
@@ -940,6 +937,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   suggestionsGrid: {
+    // Stretching gives the 47%-wide chips a definite width to resolve against
+    // now that their ancestor is a scroll content container.
+    alignSelf: 'stretch',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
