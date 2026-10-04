@@ -19,6 +19,11 @@ export const profileApi = {
     return response.data;
   },
 
+  removeProfilePicture: async (): Promise<UpdateProfileResponse> => {
+    const response = await apiClient.patch('/profile', { avatar: null });
+    return response.data;
+  },
+
   searchLocations: async (query: string): Promise<LocationSuggestion[]> => {
     const response = await apiClient.get<LocationSuggestion[]>('/geolocation/search', {
       params: { q: query },

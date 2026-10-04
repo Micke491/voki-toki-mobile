@@ -34,7 +34,7 @@ import { GiphyPicker } from './GiphyPicker';
 import { Audio } from 'expo-av';
 import { chatApi } from '../api';
 import { ForwardMessageModal } from '../../../components/ForwardMessageModal';
-import { useChatList } from '../hooks/useChatList';
+import { useChatList, notifyChatUpdate } from '../hooks/useChatList';
 import { ChatSidebar } from './ChatSidebar';
 import { ReadReceiptModal } from './ReadReceiptModal';
 import { useCallContext } from '../../calls/CallContext';
@@ -602,12 +602,19 @@ export const ChatWindow = ({ chatId, currentUserId, autoFocusComposer }: ChatWin
 
     if (replyToId) {
       try {
-        await chatApi.sendMessage({
+        const res = await chatApi.sendMessage({
           chatId,
           senderId: user._id,
           text,
           replyTo: replyToId
         });
+        if (res?.message) {
+          notifyChatUpdate({
+            chatId,
+            lastMessage: res.message,
+            unreadCount: 0,
+          });
+        }
       } catch (err) {
         console.error(err);
       }

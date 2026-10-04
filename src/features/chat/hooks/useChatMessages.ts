@@ -5,6 +5,7 @@ import { wsClient } from '../../../api/ws-client';
 import { chatApi } from '../api';
 import { Message } from '../types';
 import { alertRestriction, isRestrictionError } from '../../moderation/restrictionError';
+import { notifyChatUpdate } from './useChatList';
 
 interface UseChatMessagesProps {
   chatId: string;
@@ -136,7 +137,16 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
       const promises = targetChatIds.map(id =>
         chatApi.sendMessage({ chatId: id, senderId: currentUserId, text: messageText, mediaUrl, mediaType, isForwarded: true })
       );
-      await Promise.all(promises);
+      const results = await Promise.all(promises);
+      results.forEach((res, i) => {
+        if (res?.message) {
+          notifyChatUpdate({
+            chatId: targetChatIds[i],
+            lastMessage: res.message,
+            unreadCount: 0,
+          });
+        }
+      });
     } catch (error) {
       console.error('Error forwarding message:', error);
       throw error;
@@ -257,6 +267,10 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
     const channel = wsClient.subscribe(`chat-${chatId}`);
 
     const onReceiveMessage = (message: Message) => {
+      notifyChatUpdate({
+        chatId: String(message.chatId),
+        lastMessage: message,
+      });
       if (String(message.chatId) !== String(chatId)) return;
 
       const senderId = typeof message.sender === 'object' ? message.sender?._id : message.sender;
@@ -422,6 +436,13 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
 
     setMessages(prev => [...prev, optimistic]);
 
+    // Broadcast optimistic message to chat list
+    notifyChatUpdate({
+      chatId,
+      lastMessage: optimistic,
+      unreadCount: 0,
+    });
+
     const netState = await NetInfo.fetch();
     const isOnline = netState.isConnected && netState.isInternetReachable !== false;
 
@@ -438,6 +459,12 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         text: trimmed,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
+      // Broadcast confirmed message to chat list
+      notifyChatUpdate({
+        chatId,
+        lastMessage: message,
+        unreadCount: 0,
+      });
     } catch (error) {
       // A ban or timeout rejects this every time it is retried, so it must not
       // enter the offline queue.
@@ -498,6 +525,13 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
 
     setMessages(prev => [...prev, optimistic]);
 
+    // Broadcast optimistic media message to chat list
+    notifyChatUpdate({
+      chatId,
+      lastMessage: optimistic,
+      unreadCount: 0,
+    });
+
     const netState = await NetInfo.fetch();
     const isOnline = netState.isConnected && netState.isInternetReachable !== false;
 
@@ -535,6 +569,12 @@ export function useChatMessages({ chatId, currentUserId }: UseChatMessagesProps)
         mediaPublicId,
       });
       setMessages(prev => prev.map(m => (m._id === tempId ? { ...message, status: 'sent' } : m)));
+      // Broadcast confirmed media message to chat list
+      notifyChatUpdate({
+        chatId,
+        lastMessage: message,
+        unreadCount: 0,
+      });
     } catch (error) {
       if (isRestrictionError(error)) {
         setMessages(prev => prev.filter(m => m._id !== tempId));

@@ -63,7 +63,9 @@ export function EditProfileScreen() {
     removeLink,
     linkErrors,
     avatarUri,
+    isAvatarRemoved,
     pickAvatar,
+    removeAvatar,
     saving,
     uploadProgress,
     error,
@@ -110,8 +112,26 @@ export function EditProfileScreen() {
     }
   };
 
-  const displayAvatar = avatarUri || user?.avatar;
+  const displayAvatar = isAvatarRemoved ? null : (avatarUri || user?.avatar);
   const avatarLetter = (username || user?.username || 'V').charAt(0).toUpperCase();
+
+  const handleAvatarPress = () => {
+    if (saving) return;
+    if (displayAvatar) {
+      Alert.alert(
+        'Profile photo',
+        'Choose an action',
+        [
+          { text: 'Choose new photo', onPress: pickAvatar },
+          { text: 'Remove photo', style: 'destructive', onPress: removeAvatar },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    } else {
+      pickAvatar();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <StatusBar style="light" backgroundColor="#09090b" />
@@ -160,11 +180,11 @@ export function EditProfileScreen() {
           <View style={styles.avatarSection}>
             <TouchableOpacity
               style={styles.avatarButton}
-              onPress={pickAvatar}
+              onPress={handleAvatarPress}
               disabled={saving}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="Change profile photo"
+              accessibilityLabel={displayAvatar ? 'Change or remove profile photo' : 'Choose profile photo'}
             >
               <LinearGradient
                 colors={['#60a5fa', '#2563eb', '#7c3aed']}
@@ -191,7 +211,23 @@ export function EditProfileScreen() {
               ) : null}
             </TouchableOpacity>
             <Text style={styles.avatarTitle}>Profile photo</Text>
-            <Text style={styles.avatarHint}>Tap the camera to choose a square photo</Text>
+            <Text style={styles.avatarHint}>
+              {displayAvatar ? 'Tap photo to change or remove' : 'Tap to choose a square photo'}
+            </Text>
+
+            {displayAvatar ? (
+              <TouchableOpacity
+                style={styles.removeAvatarButton}
+                onPress={removeAvatar}
+                disabled={saving}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Remove profile photo"
+              >
+                <Feather name="trash-2" size={13} color="#f87171" />
+                <Text style={styles.removeAvatarText}>Remove photo</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           <View style={styles.section}>
@@ -715,6 +751,23 @@ const styles = StyleSheet.create({
     color: '#71717a',
     fontSize: 12,
     marginTop: 4,
+  },
+  removeAvatarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+  },
+  removeAvatarText: {
+    color: '#f87171',
+    fontSize: 12,
+    fontWeight: '700',
   },
   section: {
     marginBottom: 27,

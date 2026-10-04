@@ -11,9 +11,10 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Image,
+  AppState,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
@@ -41,10 +42,10 @@ function getAvatarColor(id: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function formatTime(dateString: string): string {
+function formatTime(dateString: string, currentTimestamp?: number): string {
   const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const now = currentTimestamp ? new Date(currentTimestamp) : new Date();
+  const diffMs = Math.max(0, now.getTime() - date.getTime());
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
@@ -62,7 +63,6 @@ function getMessagePreview(chat: ChatListItem, chatName: string, currentUserId?:
   if (chat.lastMessage.isDeletedForEveryone) return 'Message deleted';
   if (chat.lastMessage.isSystemMessage) return chat.lastMessage.text || '';
   if (chat.lastMessage.storyId || chat.lastMessage.storyMediaUrl) {
-    // Same wording as the web chat list for story replies.
     const amISender = chat.lastMessage.sender?._id === currentUserId;
     return amISender
       ? `You replied to ${chatName}'s highlight`
@@ -91,6 +91,8 @@ export const ChatListScreen = () => {
     tab === 'requests' ? 'requests' : 'chats'
   );
 
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
   useEffect(() => {
     if (tab === 'requests') setActiveTab('requests');
     else if (tab === 'chats') setActiveTab('chats');
@@ -114,6 +116,7 @@ export const ChatListScreen = () => {
     error,
     searchQuery,
     setSearchQuery,
+    fetchChats,
     onRefresh,
     getOtherParticipant,
     handleRemoveChat,
@@ -132,6 +135,32 @@ export const ChatListScreen = () => {
     handleLeaveGroup
   } = useChatList(user?._id);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+      fetchChats({ silent: true });
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [fetchChats]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setCurrentTime(Date.now());
+      fetchChats({ silent: true });
+    }, [fetchChats])
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        setCurrentTime(Date.now());
+        fetchChats({ silent: true });
+      }
+    });
+    return () => subscription.remove();
+  }, [fetchChats]);
+
   const displayChats = activeTab === 'chats' ? filteredChats : requests;
 
   const handleChatPress = useCallback((chatId: string) => {
@@ -149,12 +178,13 @@ export const ChatListScreen = () => {
     const avatarColor = getAvatarColor(item._id);
     const avatarUrl = item.isGroupChat ? item.avatar : otherUser.avatar;
     const preview = getMessagePreview(item, chatName, user?._id);
-    const time = item.lastMessage?.createdAt ? formatTime(item.lastMessage.createdAt) : formatTime(item.updatedAt);
+    const time = item.lastMessage?.createdAt
+      ? formatTime(item.lastMessage.createdAt, currentTime)
+      : formatTime(item.updatedAt, currentTime);
     const unread = item.unreadCount || 0;
     const senderPrefix = item.isGroupChat && item.lastMessage?.sender && !item.lastMessage.isSystemMessage
       ? `${item.lastMessage.sender.username}: `
       : '';
-    // An in-progress draft always takes priority over the last-message preview.
     const draftText = drafts[item._id];
 
     return (
@@ -164,7 +194,6 @@ export const ChatListScreen = () => {
         onLongPress={() => setSelectedChatForMenu(item)}
         activeOpacity={0.6}
       >
-        {/* Avatar (1:1 chats get a story ring like the web app) */}
         <View style={styles.avatarWrap}>
           {item.isGroupChat ? (
             <>
@@ -196,7 +225,6 @@ export const ChatListScreen = () => {
           })()}
         </View>
 
-        {/* Content */}
         <View style={styles.chatContent}>
           <View style={styles.chatTopRow}>
             <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
@@ -244,7 +272,7 @@ export const ChatListScreen = () => {
         </View>
       </TouchableOpacity>
     );
-  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest, storyGroups, hasUnviewedStories, user?._id]);
+  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest, storyGroups, hasUnviewedStories, user?._id, currentTime]);
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -263,12 +291,10 @@ export const ChatListScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
           <Feather name="search" size={18} color="#71717a" style={styles.searchIcon} />
@@ -288,7 +314,6 @@ export const ChatListScreen = () => {
         </View>
       </View>
 
-      {/* Tabs */}
       <View style={styles.tabsContainer}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'chats' && styles.activeTab]}
@@ -319,25 +344,23 @@ export const ChatListScreen = () => {
         onOpenGroup={setViewingGroupIndex}
       />
 
-      {/* Error */}
       {error && (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
         </View>
       )}
 
-      {/* Loading */}
       {loading && !refreshing && displayChats.length === 0 && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
         </View>
       )}
 
-      {/* Chat List */}
       <FlatList
         data={displayChats}
         keyExtractor={item => item._id}
         renderItem={renderChatItem}
+        extraData={currentTime}
         ListEmptyComponent={renderEmptyState}
         contentContainerStyle={displayChats.length === 0 ? styles.emptyList : undefined}
         refreshControl={
@@ -352,7 +375,6 @@ export const ChatListScreen = () => {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* FAB */}
       <TouchableOpacity
         style={styles.fab}
         onPress={() => setShowNewChat(true)}
@@ -361,7 +383,6 @@ export const ChatListScreen = () => {
         <Feather name="edit" size={22} color="#fff" />
       </TouchableOpacity>
 
-      {/* New Chat Modal */}
       <NewChatModal
         visible={showNewChat}
         onClose={() => setShowNewChat(false)}
@@ -376,7 +397,6 @@ export const ChatListScreen = () => {
         )}
       />
 
-      {/* Context Menu Modal */}
       {selectedChatForMenu && (
         <Modal
           visible={true}
@@ -427,7 +447,7 @@ export const ChatListScreen = () => {
 
                   {!selectedChatForMenu.isGroupChat && (
                     <>
-                      <TouchableOpacity style={styles.menuItem} onPress={() => { setSelectedChatForMenu(null); /* View Profile */ }}>
+                      <TouchableOpacity style={styles.menuItem} onPress={() => { setSelectedChatForMenu(null); }}>
                         <Feather name="user" size={20} color="#f4f4f5" />
                         <Text style={styles.menuItemText}>View Profile</Text>
                       </TouchableOpacity>
@@ -494,7 +514,6 @@ export const ChatListScreen = () => {
         </Modal>
       )}
 
-      {/* Mute Duration Modal */}
       {muteSelectChat && (
         <Modal
           visible={true}
@@ -555,7 +574,6 @@ export const ChatListScreen = () => {
         </Modal>
       )}
 
-      {/* Block User Confirm Modal */}
       <ConfirmModal
         isOpen={!!blockConfirm}
         onClose={() => setBlockConfirm(null)}
@@ -571,7 +589,6 @@ export const ChatListScreen = () => {
         isLoading={blocking}
       />
 
-      {/* Report User Modal */}
       <ReportModal
         isOpen={!!reportData}
         onClose={() => setReportData(null)}
@@ -580,7 +597,6 @@ export const ChatListScreen = () => {
         targetName={reportData?.username}
       />
 
-      {/* Story Viewer */}
       {viewingGroupIndex !== null && storyGroups[viewingGroupIndex] && (
         <StoryViewer
           groups={storyGroups}
@@ -592,7 +608,6 @@ export const ChatListScreen = () => {
         />
       )}
 
-      {/* Camera-first Story Composer */}
       <StoryComposer
         visible={showStoryComposer}
         onClose={() => setShowStoryComposer(false)}

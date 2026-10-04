@@ -4,6 +4,35 @@ import { chatApi } from '../api';
 import { ChatListItem, ChatParticipant } from '../types';
 import { getDraft, subscribeToDrafts } from '../utils/draftStore';
 
+export interface ChatUpdateEvent {
+  chatId: string;
+  lastMessage?: any;
+  unreadCount?: number;
+  name?: string;
+  avatar?: string;
+  participants?: ChatParticipant[];
+}
+
+type ChatUpdateListener = (data: ChatUpdateEvent) => void;
+const chatUpdateListeners = new Set<ChatUpdateListener>();
+
+export function notifyChatUpdate(data: ChatUpdateEvent) {
+  chatUpdateListeners.forEach(listener => {
+    try {
+      listener(data);
+    } catch (e) {
+      console.error('Error in chat update listener', e);
+    }
+  });
+}
+
+export function subscribeToChatUpdates(listener: ChatUpdateListener) {
+  chatUpdateListeners.add(listener);
+  return () => {
+    chatUpdateListeners.delete(listener);
+  };
+}
+
 export function useChatList(currentUserId: string | undefined, selectedChatId?: string) {
   const [chats, setChats] = useState<ChatListItem[]>([]);
   const [requests, setRequests] = useState<ChatListItem[]>([]);
@@ -29,9 +58,12 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
     selectedChatIdRef.current = selectedChatId;
   }, [selectedChatId]);
 
-  const fetchChats = useCallback(async () => {
+  const fetchChats = useCallback(async (options?: { silent?: boolean }) => {
+    const isSilent = options?.silent ?? false;
     try {
-      setLoading(true);
+      if (!isSilent) {
+        setLoading(true);
+      }
       const [chatsData, requestsData, pinnedData, mutedData] = await Promise.all([
         chatApi.getChats().catch(() => []),
         chatApi.getChatRequests().catch(() => []),
@@ -39,19 +71,23 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
         chatApi.getMutedChats().catch(() => ({ mutedChats: [] }))
       ]);
       
-      const processedData = chatsData.map((c: ChatListItem) => 
+      const processedData = (chatsData || []).map((c: ChatListItem) => 
         c._id === selectedChatIdRef.current ? { ...c, unreadCount: 0 } : c
       );
       
       setChats(processedData);
-      setRequests(requestsData);
-      setPinnedChatIds(pinnedData.pinnedChats || []);
-      setMutedChatIds(mutedData.mutedChats ? mutedData.mutedChats.map((m: any) => m.chatId) : []);
+      setRequests(requestsData || []);
+      setPinnedChatIds(pinnedData?.pinnedChats || []);
+      setMutedChatIds(mutedData?.mutedChats ? mutedData.mutedChats.map((m: any) => m.chatId) : []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load chats');
+      if (!isSilent) {
+        setError(err instanceof Error ? err.message : 'Failed to load chats');
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -102,84 +138,73 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
     });
   }, []);
 
-  // WebSocket real-time events
+  const onChatUpdate = useCallback((data: ChatUpdateEvent) => {
+    setChats(prevChats => {
+      const existingChatIndex = prevChats.findIndex(c => c._id === data.chatId);
+      if (existingChatIndex === -1) {
+        fetchChats({ silent: true });
+        return prevChats;
+      }
+
+      const existingChat = prevChats[existingChatIndex];
+      const isCurrentChat = data.chatId === selectedChatIdRef.current;
+      const amISender = data.lastMessage?.sender?._id === currentUserIdRef.current
+        || data.lastMessage?.sender === currentUserIdRef.current;
+
+      let newUnreadCount = existingChat.unreadCount || 0;
+
+      if (isCurrentChat || amISender) {
+        newUnreadCount = 0;
+      } else if (data.unreadCount !== undefined) {
+        newUnreadCount = data.unreadCount;
+      } else if (data.lastMessage) {
+        newUnreadCount += 1;
+      }
+
+      const messageTime = data.lastMessage?.createdAt || new Date().toISOString();
+
+      const updatedChat: ChatListItem = {
+        ...existingChat,
+        updatedAt: messageTime,
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.avatar !== undefined && { avatar: data.avatar }),
+        ...(data.participants !== undefined && { participants: data.participants }),
+        lastMessage: data.lastMessage ? {
+          _id: data.lastMessage._id,
+          text: data.lastMessage.text,
+          mediaUrl: data.lastMessage.mediaUrl,
+          mediaType: data.lastMessage.mediaType,
+          sender: data.lastMessage.sender,
+          createdAt: messageTime,
+          isSystemMessage: data.lastMessage.isSystemMessage,
+          storyId: data.lastMessage.storyId,
+          storyMediaUrl: data.lastMessage.storyMediaUrl,
+          isDeletedForEveryone: data.lastMessage.isDeletedForEveryone,
+        } : existingChat.lastMessage,
+        unreadCount: newUnreadCount,
+      };
+
+      const otherChats = prevChats.filter((_, index) => index !== existingChatIndex);
+
+      if (!amISender && data.lastMessage?._id && !isCurrentChat) {
+        chatApi.markMessagesDelivered(data.chatId, [data.lastMessage._id]).catch(err => console.error('Error marking delivered:', err));
+      }
+
+      return [updatedChat, ...otherChats];
+    });
+  }, [fetchChats]);
+
+  useEffect(() => {
+    return subscribeToChatUpdates((data) => {
+      onChatUpdate(data);
+    });
+  }, [onChatUpdate]);
+
   useEffect(() => {
     if (!currentUserId) return;
 
-    // Connect WS and subscribe
     wsClient.connect();
     const channel = wsClient.subscribe(`user-${currentUserId}`);
-
-    const onChatUpdate = (data: {
-      chatId: string;
-      lastMessage?: any;
-      unreadCount?: number;
-      name?: string;
-      avatar?: string;
-      participants?: ChatParticipant[];
-    }) => {
-      setChats(prevChats => {
-        const existingChatIndex = prevChats.findIndex(c => c._id === data.chatId);
-        if (existingChatIndex === -1) {
-          // New chat we don't have, refetch
-          fetchChats();
-          return prevChats;
-        }
-
-        const existingChat = prevChats[existingChatIndex];
-        const isCurrentChat = data.chatId === selectedChatIdRef.current;
-        const amISender = data.lastMessage?.sender?._id === currentUserIdRef.current
-          || data.lastMessage?.sender === currentUserIdRef.current;
-
-        let newUnreadCount = existingChat.unreadCount || 0;
-
-        if (isCurrentChat || amISender) {
-          newUnreadCount = 0;
-        } else if (data.unreadCount !== undefined) {
-          newUnreadCount = data.unreadCount;
-        } else if (data.lastMessage) {
-          newUnreadCount += 1;
-        }
-
-        const updatedChat: ChatListItem = {
-          ...existingChat,
-          updatedAt: new Date().toISOString(),
-          ...(data.name !== undefined && { name: data.name }),
-          ...(data.avatar !== undefined && { avatar: data.avatar }),
-          ...(data.participants !== undefined && { participants: data.participants }),
-          lastMessage: data.lastMessage ? {
-            _id: data.lastMessage._id,
-            text: data.lastMessage.text,
-            mediaUrl: data.lastMessage.mediaUrl,
-            mediaType: data.lastMessage.mediaType,
-            sender: data.lastMessage.sender,
-            createdAt: data.lastMessage.createdAt,
-            isSystemMessage: data.lastMessage.isSystemMessage,
-            storyId: data.lastMessage.storyId,
-            storyMediaUrl: data.lastMessage.storyMediaUrl,
-            isDeletedForEveryone: data.lastMessage.isDeletedForEveryone,
-          } : existingChat.lastMessage,
-          unreadCount: newUnreadCount,
-        };
-
-        const otherChats = prevChats.filter((_, index) => index !== existingChatIndex);
-
-        const shouldMoveToTop = !existingChat.lastMessage ||
-          (data.lastMessage && new Date(data.lastMessage.createdAt) > new Date(existingChat.lastMessage.createdAt));
-
-        if (!amISender && data.lastMessage?._id && !isCurrentChat) {
-          chatApi.markMessagesDelivered(data.chatId, [data.lastMessage._id]).catch(err => console.error('Error marking delivered:', err));
-        }
-
-        if (shouldMoveToTop) {
-          return [updatedChat, ...otherChats];
-        } else {
-          const newChats = [...prevChats];
-          newChats[existingChatIndex] = updatedChat;
-          return newChats;
-        }
-      });
-    };
 
     const onChatRemoved = (data: { chatId: string }) => {
       setChats(prevChats => prevChats.filter(c => c._id !== data.chatId));
@@ -231,7 +256,7 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
       channel.unbind('chat-muted', onChatMuted);
       channel.unbind('chat-unmuted', onChatUnmuted);
     };
-  }, [currentUserId, fetchChats]);
+  }, [currentUserId, onChatUpdate]);
 
   const getOtherParticipant = useCallback((chat: ChatListItem) => {
     const other = chat.participants.find(p => p._id !== currentUserId);
@@ -244,7 +269,10 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
       const bPinned = pinnedChatIds.includes(b._id);
       if (aPinned && !bPinned) return -1;
       if (!aPinned && bPinned) return 1;
-      return 0;
+
+      const timeA = new Date(a.lastMessage?.createdAt || a.updatedAt || 0).getTime();
+      const timeB = new Date(b.lastMessage?.createdAt || b.updatedAt || 0).getTime();
+      return timeB - timeA;
     });
 
     return sorted.filter(chat => {

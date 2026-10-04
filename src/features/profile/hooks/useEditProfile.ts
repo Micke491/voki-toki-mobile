@@ -33,6 +33,7 @@ interface EditableProfileSnapshot {
   location: string;
   gender: string;
   links: UserLink[];
+  avatar: string | null;
 }
 
 const normalizeUsername = (value: string) =>
@@ -51,6 +52,7 @@ const getSnapshot = (user: User | null): EditableProfileSnapshot => {
     location: user?.location || '',
     gender,
     links: (user?.links || []).map((link) => ({ ...link })),
+    avatar: user?.avatar || null,
   };
 };
 
@@ -136,6 +138,7 @@ export function useEditProfile(initialUser: User | null) {
   );
   const [links, setLinks] = useState<UserLink[]>(initialSnapshot.links);
   const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [isAvatarRemoved, setIsAvatarRemoved] = useState(false);
 
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [searchingLocation, setSearchingLocation] = useState(false);
@@ -166,7 +169,10 @@ export function useEditProfile(initialUser: User | null) {
     setGenderValue(next.gender);
     setCustomGenderValue(nextCustomGender);
     setLinks(next.links);
-    if (!preserveAvatar) setAvatarAsset(null);
+    if (!preserveAvatar) {
+      setAvatarAsset(null);
+      setIsAvatarRemoved(false);
+    }
     setLocationSuggestions([]);
     setShowSuggestions(false);
     setSearchingLocation(false);
@@ -435,14 +441,17 @@ export function useEditProfile(initialUser: User | null) {
   const hasLinkErrors = Object.keys(linkErrors).length > 0;
 
   const isDirty = useMemo(() => {
-    return Boolean(avatarAsset)
+    const avatarChanged = Boolean(avatarAsset)
+      || (isAvatarRemoved && Boolean(baseline.avatar));
+
+    return avatarChanged
       || name !== baseline.name
       || username !== baseline.username
       || bio !== baseline.bio
       || gender !== baseline.gender
       || locationQuery !== baseline.location
       || JSON.stringify(links) !== JSON.stringify(baseline.links);
-  }, [avatarAsset, baseline, bio, gender, links, locationQuery, name, username]);
+  }, [avatarAsset, baseline, bio, gender, isAvatarRemoved, links, locationQuery, name, username]);
 
   const canSave = isDirty
     && !saving
@@ -478,7 +487,14 @@ export function useEditProfile(initialUser: User | null) {
     }
 
     setAvatarAsset(asset);
+    setIsAvatarRemoved(false);
   }, []);
+
+  const removeAvatar = useCallback(() => {
+    setError(null);
+    setAvatarAsset(null);
+    setIsAvatarRemoved(Boolean(baseline.avatar));
+  }, [baseline.avatar]);
 
   const save = async (): Promise<boolean> => {
     if (savingRef.current) return false;
@@ -534,20 +550,19 @@ export function useEditProfile(initialUser: User | null) {
         location: finalLocation,
         gender: gender.trim().slice(0, GENDER_MAX_LENGTH),
         links: validLinks,
+        ...(isAvatarRemoved ? { avatar: null } : {}),
       };
 
-      // Validate and persist textual profile changes first. The avatar upload
-      // endpoint writes immediately, so doing it second prevents a duplicate
-      // username (or another PATCH failure) from leaving a changed server
-      // avatar with stale local state.
       const result = await profileApi.updateMyProfile(payload);
       const baseUser = authUser || initialUser;
       let mergedUser: User = baseUser
         ? { ...baseUser, ...result.user }
         : result.user;
 
-      // Commit the successful textual PATCH immediately. If the photo upload
-      // then fails, only the selected photo remains dirty and retryable.
+      if (isAvatarRemoved) {
+        mergedUser = { ...mergedUser, avatar: undefined };
+      }
+
       updateUser(mergedUser);
       syncFromUser(mergedUser, Boolean(avatarAsset));
       profileChangesSaved = true;
@@ -567,9 +582,6 @@ export function useEditProfile(initialUser: User | null) {
         );
         mergedUser = { ...mergedUser, avatar: uploadResult.url };
 
-        // Upload already persists the URL. This best-effort PATCH keeps the
-        // web socket profile-updated broadcast behavior without turning a
-        // successful upload into a false failure if confirmation is lost.
         try {
           const avatarResult = await profileApi.updateMyProfile({ avatar: uploadResult.url });
           mergedUser = { ...mergedUser, ...avatarResult.user, avatar: uploadResult.url };
@@ -577,7 +589,6 @@ export function useEditProfile(initialUser: User | null) {
           if ((err as { response?: { status?: number } }).response?.status === 401) {
             throw err;
           }
-          // The upload endpoint has already saved the avatar.
         }
 
         updateUser(mergedUser);
@@ -637,7 +648,9 @@ export function useEditProfile(initialUser: User | null) {
     removeLink,
     linkErrors,
     avatarUri: avatarAsset?.uri || null,
+    isAvatarRemoved,
     pickAvatar,
+    removeAvatar,
     saving,
     uploadProgress,
     error,
