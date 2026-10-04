@@ -43,7 +43,7 @@ export interface UpdateProfilePayload {
   username?: string;
   name?: string;
   bio?: string;
-  avatar?: string;
+  avatar?: string | null;
   location?: string;
   gender?: string;
   links?: UserLink[];

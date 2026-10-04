@@ -63,7 +63,9 @@ export function EditProfileScreen() {
     removeLink,
     linkErrors,
     avatarUri,
+    isAvatarRemoved,
     pickAvatar,
+    removeAvatar,
     saving,
     uploadProgress,
     error,
@@ -110,11 +112,28 @@ export function EditProfileScreen() {
     }
   };
 
-  const displayAvatar = avatarUri || user?.avatar;
+  const handleConfirmRemoveAvatar = () => {
+    Alert.alert(
+      'Remove profile photo?',
+      'Your profile will show your initial instead.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: removeAvatar,
+        },
+      ]
+    );
+  };
+
+  // If marked removed, do not show the old or newly picked avatar
+  const displayAvatar = isAvatarRemoved ? null : (avatarUri || user?.avatar);
   const avatarLetter = (username || user?.username || 'V').charAt(0).toUpperCase();
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <StatusBar style="light" backgroundColor="#09090b" />
+      <StatusBar style="light" />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -192,8 +211,23 @@ export function EditProfileScreen() {
             </TouchableOpacity>
             <Text style={styles.avatarTitle}>Profile photo</Text>
             <Text style={styles.avatarHint}>Tap the camera to choose a square photo</Text>
+
+            {displayAvatar ? (
+              <TouchableOpacity
+                style={styles.removeAvatarButton}
+                onPress={handleConfirmRemoveAvatar}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel="Remove profile photo"
+                activeOpacity={0.8}
+              >
+                <Feather name="trash-2" size={13} color="#f87171" />
+                <Text style={styles.removeAvatarText}>Remove photo</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
+          {/* Identity Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}>
@@ -245,6 +279,7 @@ export function EditProfileScreen() {
             </View>
           </View>
 
+          {/* About Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}>
@@ -279,6 +314,7 @@ export function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Gender Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}>
@@ -339,6 +375,7 @@ export function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Location Section */}
           <View style={[styles.section, styles.locationSection]}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}>
@@ -444,6 +481,7 @@ export function EditProfileScreen() {
             </View>
           </View>
 
+          {/* Links Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}>
@@ -694,7 +732,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   uploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     borderRadius: 60,
     backgroundColor: 'rgba(0,0,0,0.72)',
     alignItems: 'center',
@@ -715,6 +753,21 @@ const styles = StyleSheet.create({
     color: '#71717a',
     fontSize: 12,
     marginTop: 4,
+  },
+  removeAvatarButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  removeAvatarText: {
+    color: '#f87171',
+    fontSize: 12,
+    fontWeight: '700',
   },
   section: {
     marginBottom: 27,

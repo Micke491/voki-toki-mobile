@@ -13,7 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useAuthContext } from '../../auth/context/AuthContext';
 import { useChatList } from '../hooks/useChatList';
 import { ChatListItem } from '../types';
@@ -41,10 +41,15 @@ function getAvatarColor(id: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function formatTime(dateString: string): string {
+function formatTime(dateString?: string, nowMs: number = Date.now()): string {
+  if (!dateString) return '';
   const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const timeMs = date.getTime();
+  if (isNaN(timeMs)) return '';
+
+  const diffMs = nowMs - timeMs;
+  if (diffMs < 0) return 'now';
+
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
@@ -62,7 +67,6 @@ function getMessagePreview(chat: ChatListItem, chatName: string, currentUserId?:
   if (chat.lastMessage.isDeletedForEveryone) return 'Message deleted';
   if (chat.lastMessage.isSystemMessage) return chat.lastMessage.text || '';
   if (chat.lastMessage.storyId || chat.lastMessage.storyMediaUrl) {
-    // Same wording as the web chat list for story replies.
     const amISender = chat.lastMessage.sender?._id === currentUserId;
     return amISender
       ? `You replied to ${chatName}'s highlight`
@@ -91,10 +95,13 @@ export const ChatListScreen = () => {
     tab === 'requests' ? 'requests' : 'chats'
   );
 
+  const [now, setNow] = useState(() => Date.now());
+
   useEffect(() => {
     if (tab === 'requests') setActiveTab('requests');
     else if (tab === 'chats') setActiveTab('chats');
   }, [tab]);
+
   const [selectedChatForMenu, setSelectedChatForMenu] = useState<ChatListItem | null>(null);
   const [muteSelectChat, setMuteSelectChat] = useState<{ chatId: string; name: string } | null>(null);
 
@@ -114,6 +121,7 @@ export const ChatListScreen = () => {
     error,
     searchQuery,
     setSearchQuery,
+    fetchChats,
     onRefresh,
     getOtherParticipant,
     handleRemoveChat,
@@ -132,6 +140,19 @@ export const ChatListScreen = () => {
     handleLeaveGroup
   } = useChatList(user?._id);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchChats(true);
+      setNow(Date.now());
+
+      const interval = setInterval(() => {
+        setNow(Date.now());
+      }, 10000);
+
+      return () => clearInterval(interval);
+    }, [fetchChats])
+  );
+
   const displayChats = activeTab === 'chats' ? filteredChats : requests;
 
   const handleChatPress = useCallback((chatId: string) => {
@@ -149,12 +170,13 @@ export const ChatListScreen = () => {
     const avatarColor = getAvatarColor(item._id);
     const avatarUrl = item.isGroupChat ? item.avatar : otherUser.avatar;
     const preview = getMessagePreview(item, chatName, user?._id);
-    const time = item.lastMessage?.createdAt ? formatTime(item.lastMessage.createdAt) : formatTime(item.updatedAt);
+    const time = item.lastMessage?.createdAt
+      ? formatTime(item.lastMessage.createdAt, now)
+      : formatTime(item.updatedAt, now);
     const unread = item.unreadCount || 0;
     const senderPrefix = item.isGroupChat && item.lastMessage?.sender && !item.lastMessage.isSystemMessage
       ? `${item.lastMessage.sender.username}: `
       : '';
-    // An in-progress draft always takes priority over the last-message preview.
     const draftText = drafts[item._id];
 
     return (
@@ -164,7 +186,7 @@ export const ChatListScreen = () => {
         onLongPress={() => setSelectedChatForMenu(item)}
         activeOpacity={0.6}
       >
-        {/* Avatar (1:1 chats get a story ring like the web app) */}
+        {/* Avatar */}
         <View style={styles.avatarWrap}>
           {item.isGroupChat ? (
             <>
@@ -244,7 +266,20 @@ export const ChatListScreen = () => {
         </View>
       </TouchableOpacity>
     );
-  }, [getOtherParticipant, handleChatPress, pinnedChatIds, mutedChatIds, drafts, activeTab, handleAcceptRequest, handleRejectRequest, storyGroups, hasUnviewedStories, user?._id]);
+  }, [
+    getOtherParticipant,
+    handleChatPress,
+    pinnedChatIds,
+    mutedChatIds,
+    drafts,
+    activeTab,
+    handleAcceptRequest,
+    handleRejectRequest,
+    storyGroups,
+    hasUnviewedStories,
+    user?._id,
+    now,
+  ]);
 
   const renderEmptyState = () => {
     if (loading) return null;
@@ -336,6 +371,7 @@ export const ChatListScreen = () => {
       {/* Chat List */}
       <FlatList
         data={displayChats}
+        extraData={now}
         keyExtractor={item => item._id}
         renderItem={renderChatItem}
         ListEmptyComponent={renderEmptyState}
@@ -427,7 +463,7 @@ export const ChatListScreen = () => {
 
                   {!selectedChatForMenu.isGroupChat && (
                     <>
-                      <TouchableOpacity style={styles.menuItem} onPress={() => { setSelectedChatForMenu(null); /* View Profile */ }}>
+                      <TouchableOpacity style={styles.menuItem} onPress={() => { setSelectedChatForMenu(null); }}>
                         <Feather name="user" size={20} color="#f4f4f5" />
                         <Text style={styles.menuItemText}>View Profile</Text>
                       </TouchableOpacity>

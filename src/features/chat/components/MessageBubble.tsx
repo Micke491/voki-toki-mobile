@@ -739,7 +739,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   rowWithReactions: {
-    marginBottom: 18,
+    marginBottom: 24,
   },
   bubbleRow: {
     flexDirection: 'row',
@@ -1012,7 +1012,7 @@ const styles = StyleSheet.create({
   },
   reactionsPill: {
     position: 'absolute',
-    bottom: -13,
+    bottom: -19,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#18181b',

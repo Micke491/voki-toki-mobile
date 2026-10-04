@@ -199,7 +199,7 @@ export function ProfileScreen() {
   if (loading && !displayUser) {
     return (
       <SafeAreaView style={[styles.safeArea, styles.center]}>
-        <StatusBar style="light" backgroundColor="#09090b" />
+        <StatusBar style="light" />
         <ActivityIndicator size="large" color="#3b82f6" />
         <Text style={styles.loadingText}>Loading your profile…</Text>
       </SafeAreaView>
@@ -209,7 +209,7 @@ export function ProfileScreen() {
   if (!displayUser) {
     return (
       <SafeAreaView style={[styles.safeArea, styles.center]}>
-        <StatusBar style="light" backgroundColor="#09090b" />
+        <StatusBar style="light" />
         <View style={styles.errorIcon}>
           <Feather name="user-x" size={28} color="#f87171" />
         </View>
@@ -229,7 +229,7 @@ export function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <StatusBar style="light" backgroundColor="#09090b" />
+      <StatusBar style="light" />
       <View style={styles.topBar}>
         <View>
           <Text style={styles.eyebrow}>YOUR SPACE</Text>
@@ -1239,7 +1239,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   storyOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
   },
   videoBadge: {
     position: 'absolute',

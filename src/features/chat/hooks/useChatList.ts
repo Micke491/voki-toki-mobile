@@ -29,9 +29,9 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
     selectedChatIdRef.current = selectedChatId;
   }, [selectedChatId]);
 
-  const fetchChats = useCallback(async () => {
+  const fetchChats = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [chatsData, requestsData, pinnedData, mutedData] = await Promise.all([
         chatApi.getChats().catch(() => []),
         chatApi.getChatRequests().catch(() => []),
@@ -49,16 +49,18 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
       setMutedChatIds(mutedData.mutedChats ? mutedData.mutedChats.map((m: any) => m.chatId) : []);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load chats');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Failed to load chats');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchChats();
+      await fetchChats(true);
     } finally {
       setRefreshing(false);
     }
@@ -106,7 +108,6 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
   useEffect(() => {
     if (!currentUserId) return;
 
-    // Connect WS and subscribe
     wsClient.connect();
     const channel = wsClient.subscribe(`user-${currentUserId}`);
 
@@ -121,8 +122,7 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
       setChats(prevChats => {
         const existingChatIndex = prevChats.findIndex(c => c._id === data.chatId);
         if (existingChatIndex === -1) {
-          // New chat we don't have, refetch
-          fetchChats();
+          fetchChats(true);
           return prevChats;
         }
 
@@ -153,7 +153,7 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
             mediaUrl: data.lastMessage.mediaUrl,
             mediaType: data.lastMessage.mediaType,
             sender: data.lastMessage.sender,
-            createdAt: data.lastMessage.createdAt,
+            createdAt: data.lastMessage.createdAt || new Date().toISOString(),
             isSystemMessage: data.lastMessage.isSystemMessage,
             storyId: data.lastMessage.storyId,
             storyMediaUrl: data.lastMessage.storyMediaUrl,
@@ -164,8 +164,14 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
 
         const otherChats = prevChats.filter((_, index) => index !== existingChatIndex);
 
-        const shouldMoveToTop = !existingChat.lastMessage ||
-          (data.lastMessage && new Date(data.lastMessage.createdAt) > new Date(existingChat.lastMessage.createdAt));
+        const existingTime = existingChat.lastMessage?.createdAt
+          ? new Date(existingChat.lastMessage.createdAt).getTime()
+          : 0;
+        const newTime = data.lastMessage?.createdAt
+          ? new Date(data.lastMessage.createdAt).getTime()
+          : Date.now();
+
+        const shouldMoveToTop = !existingChat.lastMessage || newTime >= existingTime;
 
         if (!amISender && data.lastMessage?._id && !isCurrentChat) {
           chatApi.markMessagesDelivered(data.chatId, [data.lastMessage._id]).catch(err => console.error('Error marking delivered:', err));
@@ -239,12 +245,15 @@ export function useChatList(currentUserId: string | undefined, selectedChatId?: 
   }, [currentUserId]);
 
   const filteredChats = useMemo(() => {
-    let sorted = [...chats].sort((a, b) => {
+    const sorted = [...chats].sort((a, b) => {
       const aPinned = pinnedChatIds.includes(a._id);
       const bPinned = pinnedChatIds.includes(b._id);
       if (aPinned && !bPinned) return -1;
       if (!aPinned && bPinned) return 1;
-      return 0;
+
+      const aTime = new Date(a.lastMessage?.createdAt || a.updatedAt || 0).getTime();
+      const bTime = new Date(b.lastMessage?.createdAt || b.updatedAt || 0).getTime();
+      return bTime - aTime;
     });
 
     return sorted.filter(chat => {
